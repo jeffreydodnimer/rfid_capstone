@@ -33,7 +33,7 @@ class SF2PDF extends FPDF
         $this->Cell(30, 7, '', 0);
 
         $this->Cell(25, 7, 'Grade Level', 0);
-        $this->Cell(50, 7, 'Grade 7 (Year I)', 1, 0, 'C');
+        $this->Cell(50, 7, 'Grade 7 (Year I)', 1, 0);
         $this->Cell(20, 7, '', 0);
         
         $this->Cell(25, 7, 'Section', 0);
