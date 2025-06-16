@@ -1,4 +1,10 @@
 <?php
+session_start();  // Must be at the VERY TOP
+if (!isset($_SESSION['email'])) {
+    header('Location: admin_login.php');
+    exit();
+}
+
 include 'conn.php';
 
 // Handle Add Student
@@ -50,12 +56,6 @@ if (isset($_POST['delete_student'])) {
     $conn->begin_transaction();
 
     try {
-        // Delete related records from other tables (if any)
-        // For example, if you have a table called 'grades' with a foreign key to 'students'
-        // $stmt = $conn->prepare("DELETE FROM grades WHERE lrn = ?");
-        // $stmt->bind_param("s", $lrn);
-        // $stmt->execute();
-        // $stmt->close();
 
         // Delete the student record using LRN
         $stmt = $conn->prepare("DELETE FROM students WHERE lrn = ?");
