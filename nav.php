@@ -4,7 +4,7 @@
     <ul class="navbar-nav bg-bg-maroon sidebar sidebar-dark accordion" id="accordionSidebar" style="background-color:rgb(7, 29, 230);">
 
         <!-- Sidebar - Brand -->
-        <a class="sidebar-brand d-flex align-items-center justify-content-center" href="index.php">
+        <a class="sidebar-brand d-flex align-items-center justify-content-center">
             <div class="d-flex align-items-center mb-3">
                 <img src="imG/logo.jpg" alt="Admin Profile Picture" class="rounded-circle" 
                      style="width: 95px; height: 95px; object-fit: fit; border-radius: 50%; padding: 5px; margin-top: 70px;">
@@ -82,7 +82,7 @@
                     <a class="collapse-item" href="login.php">User Accounts</a>
                     <a class="collapse-item" href="register.php">User Roles & Permissions</a>
                     <div class="collapse-divider"></div>
-                    
+                </div>
             </div>
         </li>
 
@@ -93,11 +93,21 @@
                 <span>Reports</span></a>
         </li>
 
-        <!-- Sidebar Toggler (Sidebar) -->
-        <div class="d-flex justify-content-center align-items-center">
-    <button class="rounded-circle border-0" id="sidebarToggle"></button>
-</div>
+        <!-- Divider before logout -->
+        <hr class="sidebar-divider mt-3">
+        
+        <!-- Nav Item - Logout -->
+        <li class="nav-item">
+            <a class="nav-link" href="index.php" data-toggle="modal" data-target="#logoutModal">
+                <i class="fas fa-sign-out-alt fa-fw"></i>
+                <span>Logout</span>
+            </a>
+        </li>
 
+        <!-- Sidebar Toggler (Sidebar) -->
+        <div class="d-flex justify-content-center align-items-center mt-3 mb-3">
+            <button class="rounded-circle border-0" id="sidebarToggle"></button>
+        </div>
 
     </ul>
     <!-- End of Sidebar -->
@@ -278,7 +288,7 @@
                                 Profile
                             </a>
                             <div class="dropdown-divider"></div>
-                            <a class="dropdown-item" href="#" data-toggle="modal" data-target="#logoutModal">
+                            <a class="dropdown-item" href="index.php" data-toggle="modal" data-target="#logoutModal">
                                 <i class="fas fa-sign-out-alt fa-sm fa-fw mr-2 text-gray-400"></i>
                                 Logout
                             </a>

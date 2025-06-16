@@ -1,7 +1,7 @@
 <?php
 include 'conn.php';
 
-
+// Handle Add Student
 if (isset($_POST['add_student'])) {
     $lrn = htmlspecialchars($_POST['lrn']);
     $lastname = htmlspecialchars($_POST['lastname']);
@@ -22,7 +22,7 @@ if (isset($_POST['add_student'])) {
     // Check if prepare() was successful
     if ($stmt === false) {
         echo "<script>alert('Error preparing add statement: " . $conn->error . "'); window.location.href='students_list.php';</script>";
-        exit(); // Stop execution
+        exit();
     }
 
     $stmt->bind_param("sssssss", $lrn, $lastname, $firstname, $middlename, $birthdate, $contact, $guardian);
@@ -38,42 +38,56 @@ if (isset($_POST['add_student'])) {
 
 // Handle Delete Student
 if (isset($_POST['delete_student'])) {
-    $student_id = (int)$_POST['student_id']; // Cast to integer for security
-
+    // Get the LRN from the form
+    $lrn = $_POST['student_lrn']; // Changed from student_id to student_lrn
+    
     if (!$conn) {
         echo "<script>alert('Database connection failed for deleting student.'); window.location.href='students_list.php';</script>";
         exit();
     }
 
-    $stmt = $conn->prepare("DELETE FROM students WHERE id = ?");
+    // Start a transaction to ensure data consistency
+    $conn->begin_transaction();
 
-    // Check if prepare() was successful
-    if ($stmt === false) {
-        echo "<script>alert('Error preparing delete statement: " . $conn->error . "'); window.location.href='students_list.php';</script>";
-        exit(); // Stop execution
-    }
+    try {
+        // Delete related records from other tables (if any)
+        // For example, if you have a table called 'grades' with a foreign key to 'students'
+        // $stmt = $conn->prepare("DELETE FROM grades WHERE lrn = ?");
+        // $stmt->bind_param("s", $lrn);
+        // $stmt->execute();
+        // $stmt->close();
 
-    $stmt->bind_param("i", $student_id);
+        // Delete the student record using LRN
+        $stmt = $conn->prepare("DELETE FROM students WHERE lrn = ?");
+        $stmt->bind_param("s", $lrn); // Using string parameter since LRN might not be an integer
+        if (!$stmt->execute()) {
+            throw new Exception($stmt->error);
+        }
+        $stmt->close();
 
-    if ($stmt->execute()) {
+        // Commit the transaction
+        $conn->commit();
+
         header("Location: students_list.php?status=deleted");
         exit();
-    } else {
-        echo "<script>alert('Error deleting student: " . $stmt->error . "'); window.location.href='students_list.php';</script>";
+    } catch (Exception $e) {
+        // Roll back the transaction if an error occurs
+        $conn->rollback();
+        echo "<script>alert('Error deleting student: " . $e->getMessage() . "'); window.location.href='students_list.php';</script>";
+        exit();
     }
-    $stmt->close();
 }
 
 // Handle Edit Student
 if (isset($_POST['edit_student'])) {
-    $id = (int)$_POST['id'];
-    $lrn = htmlspecialchars($_POST['edit_lrn']);
-    $lastname = htmlspecialchars($_POST['edit_lastname']);
-    $firstname = htmlspecialchars($_POST['edit_firstname']);
-    $middlename = htmlspecialchars($_POST['edit_middlename']);
-    $birthdate = htmlspecialchars($_POST['edit_birthdate']);
-    $contact = htmlspecialchars($_POST['edit_contact']);
-    $guardian = htmlspecialchars($_POST['edit_guardian']);
+    $original_lrn = $_POST['edit_id']; // Changed from id to edit_id to match the form field
+    $lrn = htmlspecialchars($_POST['edit_lrn'], ENT_QUOTES, 'UTF-8');
+    $lastname = htmlspecialchars($_POST['edit_lastname'], ENT_QUOTES, 'UTF-8');
+    $firstname = htmlspecialchars($_POST['edit_firstname'], ENT_QUOTES, 'UTF-8');
+    $middlename = htmlspecialchars($_POST['edit_middlename'], ENT_QUOTES, 'UTF-8');
+    $birthdate = htmlspecialchars($_POST['edit_birthdate'], ENT_QUOTES, 'UTF-8');
+    $contact = htmlspecialchars($_POST['edit_contact'], ENT_QUOTES, 'UTF-8');
+    $guardian = htmlspecialchars($_POST['edit_guardian'], ENT_QUOTES, 'UTF-8');
 
     // Check if connection is valid
     if (!$conn) {
@@ -81,63 +95,48 @@ if (isset($_POST['edit_student'])) {
         exit();
     }
 
-    // Fetch the current student data from the database
-    $stmt = $conn->prepare("SELECT * FROM students WHERE id = ?");
-    if ($stmt === false) {
-        echo "<script>alert('Error preparing SELECT statement: " . $conn->error . "'); window.location.href='students_list.php';</script>";
-        exit();
-    }
-    $stmt->bind_param("i", $id);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $currentStudent = $result->fetch_assoc();
-    $stmt->close();
+    // Start a transaction for the update
+    $conn->begin_transaction();
 
-    // Check if any changes were made
-    if (
-        $currentStudent['lrn'] === $lrn &&
-        $currentStudent['lastname'] === $lastname &&
-        $currentStudent['firstname'] === $firstname &&
-        $currentStudent['middlename'] === $middlename &&
-        $currentStudent['birthdate'] === $birthdate &&
-        $currentStudent['contact'] === $contact &&
-        $currentStudent['guardian'] === $guardian
-    ) {
-        // No changes were made
-        echo "<script>alert('No changes were made.'); window.location.href='students_list.php';</script>";
-        exit();
-    }
+    try {
+        // Prepare the UPDATE statement - update record using the original LRN
+        $stmt = $conn->prepare("UPDATE students SET lrn=?, lastname=?, firstname=?, middlename=?, birthdate=?, contact=?, guardian=? WHERE lrn=?");
 
-    // Prepare the UPDATE statement
-    $stmt = $conn->prepare("UPDATE students SET lrn=?, lastname=?, firstname=?, middlename=?, birthdate=?, contact=?, guardian=? WHERE id=?");
+        // Check if prepare() was successful
+        if ($stmt === false) {
+            throw new Exception($conn->error);
+        }
 
-    // Check if prepare() was successful
-    if ($stmt === false) {
-        echo "<script>alert('Error preparing UPDATE statement: " . $conn->error . "'); window.location.href='students_list.php';</script>";
-        exit();
-    }
+        $stmt->bind_param("ssssssss", $lrn, $lastname, $firstname, $middlename, $birthdate, $contact, $guardian, $original_lrn);
 
-    $stmt->bind_param("sssssssi", $lrn, $lastname, $firstname, $middlename, $birthdate, $contact, $guardian, $id);
-
-    if ($stmt->execute()) {
+        if (!$stmt->execute()) {
+            throw new Exception($stmt->error);
+        }
+        
+        $stmt->close();
+        
+        // Commit the transaction
+        $conn->commit();
+        
         header("Location: students_list.php?status=updated");
         exit();
-    } else {
-        echo "<script>alert('Error updating student: " . $stmt->error . "'); window.location.href='students_list.php';</script>";
+    } catch (Exception $e) {
+        // Roll back the transaction if an error occurs
+        $conn->rollback();
+        echo "<script>alert('Error updating student: " . $e->getMessage() . "'); window.location.href='students_list.php';</script>";
+        exit();
     }
-    $stmt->close();
 }
 
 // --- Fetch Students for Display (runs every time the page loads) ---
 if (!$conn) {
     die("Database connection failed during student list retrieval.");
 }
-$students_result = $conn->query("SELECT * FROM students"); 
+$students_result = $conn->query("SELECT * FROM students ORDER BY lastname ASC"); 
 if (!$students_result) {
     die("Error fetching students: " . $conn->error); 
 }
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 
@@ -145,21 +144,18 @@ if (!$students_result) {
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-    <meta name="description" content="Student Management System">
-    <meta name="author" content="Your Name">
-
     <title>Student List</title>
 
     <!-- Custom fonts for this template-->
     <link href="vendor/fontawesome-free/css/all.min.css" rel="stylesheet" type="text/css">
-    <link href="https://fonts.googleapis.com/css?family=Nunito:200,200i,300,300i,400,400i,600,600i,700,700i,800,800i,900,900i" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css?family=Nunito:200,300,400,600,700,800,900" rel="stylesheet">
 
     <!-- Custom styles for this template-->
     <link href="css/sb-admin-2.min.css" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    
-    <!-- jQuery and Bootstrap JS - IMPORTANT: Load before your custom JS -->
+
+    <!-- jQuery and Bootstrap JS -->
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
 
@@ -167,11 +163,11 @@ if (!$students_result) {
         $(document).ready(function() {
             lucide.createIcons();
 
+            // Opens the Edit Modal and fills the fields with student data
             window.openEditModal = function(student) {
-                $('#editModal').modal('show'); // Show the Bootstrap modal
-
-                // Fill form fields with the student's current data
-                $('#edit_id').val(student.id);
+                $('#editModal').modal('show');
+                // Use lrn as the identifier for the edit operation
+                $('#edit_id').val(student.lrn);
                 $('#edit_lrn').val(student.lrn);
                 $('#edit_lastname').val(student.lastname);
                 $('#edit_firstname').val(student.firstname);
@@ -181,6 +177,7 @@ if (!$students_result) {
                 $('#edit_guardian').val(student.guardian);
             }
 
+            // Check for status messages in URL parameters
             const urlParams = new URLSearchParams(window.location.search);
             const status = urlParams.get('status');
             if (status) {
@@ -207,13 +204,9 @@ if (!$students_result) {
     <?php include 'nav.php'; ?>
 
     <div id="wrapper">
-        <!-- Sidebar and other wrapper content from nav.php -->
         <div id="content-wrapper" class="d-flex flex-column">
             <div id="content">
-                <!-- Topbar from nav.php -->
-                <!-- Begin Page Content -->
                 <div class="container-fluid">
-                    <!-- Page Heading -->
                     <div class="d-flex justify-content-between align-items-center mb-4">
                         <h2 class="h3 mb-0 text-gray-800">STUDENTS LIST</h2>
                         <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addStudentModal"
@@ -240,7 +233,6 @@ if (!$students_result) {
                                     <tbody>
                                         <?php 
                                         $counter = 1;
-                                        // Use $students_result which was fetched above
                                         while ($row = $students_result->fetch_assoc()): ?>
                                         <tr class="hover:bg-gray-50">
                                             <td class="border px-3 py-2"><?= $counter++ ?></td>
@@ -252,17 +244,13 @@ if (!$students_result) {
                                             <td class="border px-3 py-2"><?= htmlspecialchars($row['contact'] ?? '') ?></td>
                                             <td class="border px-3 py-2"><?= htmlspecialchars($row['guardian'] ?? '') ?></td>
                                             <td class="border px-3 py-2 space-x-2">
-                                                <!-- Edit Button - Calls JS function to open modal and populate data -->
                                                 <button onclick='openEditModal(<?= json_encode($row) ?>)'
                                                     class="text-blue-600 hover:text-blue-800 p-1 rounded">
                                                     <i data-lucide="pencil" class="w-5 h-5 inline"></i>
                                                 </button>
-
-                                                <!-- Delete Form - Submits to PHP for deletion -->
                                                 <form method="POST" class="inline" onsubmit="return confirm('Are you sure you want to delete <?= htmlspecialchars($row['firstname'] . ' ' . $row['lastname']) ?>?');">
-                                                    <input type="hidden" name="student_id" value="<?= htmlspecialchars($row['id'] ?? '') ?>" />
-                                                    <button type="submit" name="delete_student"
-                                                        class="text-red-600 hover:text-red-800 p-1 rounded">
+                                                    <input type="hidden" name="student_lrn" value="<?= htmlspecialchars($row['lrn'] ?? '') ?>" />
+                                                    <button type="submit" name="delete_student" class="text-red-600 hover:text-red-800 p-1 rounded">
                                                         <i data-lucide="trash" class="w-5 h-5 inline"></i>
                                                     </button>
                                                 </form>
@@ -282,21 +270,16 @@ if (!$students_result) {
                 </div>
             </div>          
         </div>
-        
     </div>
-    <!-- End of Page Wrapper -->
 
-
+    <!-- Add Student Modal -->
     <div class="modal fade" id="addStudentModal" tabindex="-1" aria-labelledby="addStudentModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-lg">
             <div class="modal-content" style="position: relative;">
-                <!-- Modal Header -->
                 <div class="modal-header">
                     <h5 class="modal-title" id="addStudentModalLabel">Add Student Information</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
-
-                <!-- Modal Body -->
                 <div class="modal-body">
                     <div class="container mt-3">
                         <div class="row justify-content-center">
@@ -304,8 +287,6 @@ if (!$students_result) {
                                 <div class="card p-4 shadow-sm" style="border-radius: 20px; background-color: rgba(255, 255, 255, 0.9);">
                                     <img src="images/you.png" width="100" height="100" alt="" class="rounded-circle mx-auto d-block"><br>
                                     <h3 class="text-center">ADD STUDENT</h3><br>
-                                    
-                                    <!-- Form for Adding Student -->
                                     <form method="post">
                                         <div class="mb-3">
                                             <input type="text" class="form-control" name="lrn" placeholder="Enter LRN" required
@@ -335,19 +316,15 @@ if (!$students_result) {
                                             <input type="text" class="form-control" name="guardian" placeholder="Enter Guardian's Name"
                                                 style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
                                         </div>
-                                    
                                         <div class="text-center">
                                             <button type="submit" name="add_student" class="btn btn-primary px-4">Register Student</button>
                                         </div>
                                     </form>
-                                    <!-- End Form -->
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
-
-                <!-- Modal Footer -->
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
                 </div>
@@ -355,17 +332,14 @@ if (!$students_result) {
         </div>
     </div>
 
-    <!-- Edit Student Modal (Bootstrap 5) -->
+    <!-- Edit Student Modal -->
     <div class="modal fade" id="editModal" tabindex="-1" aria-labelledby="editModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-lg">
             <div class="modal-content" style="position: relative;">
-                <!-- Modal Header -->
                 <div class="modal-header">
                     <h5 class="modal-title" id="editModalLabel">Edit Student Information</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
-
-                <!-- Modal Body -->
                 <div class="modal-body">
                     <div class="container mt-3">
                         <div class="row justify-content-center">
@@ -373,10 +347,8 @@ if (!$students_result) {
                                 <div class="card p-4 shadow-sm" style="border-radius: 20px; background-color: rgba(255, 255, 255, 0.9);">
                                     <img src="images/you.png" width="100" height="100" alt="" class="rounded-circle mx-auto d-block"><br>
                                     <h3 class="text-center">EDIT STUDENT</h3><br>
-                                    
-                                    <!-- Form for Editing Student -->
                                     <form method="post">
-                                        <input type="hidden" id="edit_id" name="id"> <!-- Hidden input for student ID -->
+                                        <input type="hidden" id="edit_id" name="edit_id">
                                         <div class="mb-3">
                                             <input type="text" class="form-control" id="edit_lrn" name="edit_lrn" placeholder="Enter LRN" required
                                                 style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
@@ -405,19 +377,15 @@ if (!$students_result) {
                                             <input type="text" class="form-control" id="edit_guardian" name="edit_guardian" placeholder="Enter Guardian's Name"
                                                 style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
                                         </div>
-                                    
                                         <div class="text-center">
                                             <button type="submit" name="edit_student" class="btn btn-primary px-4">Update Student</button>
                                         </div>
                                     </form>
-                                    <!-- End Form -->
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
-
-                <!-- Modal Footer -->
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
                 </div>
@@ -425,8 +393,8 @@ if (!$students_result) {
         </div>
     </div>
 
-    <br>
     <!-- Footer -->
+    <br>
     <footer class="sticky-footer bg-white">
         <div class="container my-auto">
             <div class="copyright text-center my-auto">
@@ -434,12 +402,9 @@ if (!$students_result) {
             </div>
         </div>
     </footer>
-    <!-- End of Footer -->
 
     <a class="scroll-to-top rounded" href="#page-top">
         <i class="fas fa-angle-up"></i>
     </a>
-
-
 </body>
 </html>
