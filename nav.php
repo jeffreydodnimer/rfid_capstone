@@ -1,3 +1,32 @@
+<?php
+
+if (!isset($_SESSION['email'])) {
+    header('Location: admin_login.php');
+    exit();
+}
+
+$servername = "localhost";
+$username = "root";
+$password = "";
+$dbname = "rfid_capstone";
+
+$conn = new mysqli($servername, $username, $password, $dbname);
+
+if ($conn->connect_error) {
+    die("Connection failed: " . $conn->connect_error);
+}
+
+$email = $_SESSION['email'];
+$sql = "SELECT * FROM users WHERE email = ?";
+$stmt = $conn->prepare($sql);
+$stmt->bind_param("s", $email);
+$stmt->execute();
+$result = $stmt->get_result();
+
+$user = $result->fetch_assoc();
+?>
+
+
 <div id="wrapper">
 
     <!-- Sidebar -->
@@ -91,17 +120,6 @@
             <a class="nav-link" href="report.php">
                 <i class="fas fa-fw fa-chart-area"></i>
                 <span>Reports</span></a>
-        </li>
-
-        <!-- Divider before logout -->
-        <hr class="sidebar-divider mt-3">
-        
-        <!-- Nav Item - Logout -->
-        <li class="nav-item">
-            <a class="nav-link" href="index.php" data-toggle="modal" data-target="#logoutModal">
-                <i class="fas fa-sign-out-alt fa-fw"></i>
-                <span>Logout</span>
-            </a>
         </li>
 
         <!-- Sidebar Toggler (Sidebar) -->
@@ -272,13 +290,13 @@
 
                     <div class="topbar-divider d-none d-sm-block"></div>
 
-                    <!-- Nav Item - User Information -->
                     <li class="nav-item dropdown no-arrow">
                         <a class="nav-link dropdown-toggle" href="index.php" id="userDropdown" role="button"
                             data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-                            <span class="mr-2 d-none d-lg-inline text-gray-600 small">Douglas McGee</span>
-                            <img class="img-profile rounded-circle"
-                                src="img/undraw_profile.svg">
+                            <span class="mr-2 d-none d-lg-inline text-gray-600 small">
+                                <?php echo htmlspecialchars($user['email']); ?>
+                            </span>
+                            <img class="img-profile rounded-circle" src="img/profile.svg">
                         </a>
                         <!-- Dropdown - User Information -->
                         <div class="dropdown-menu dropdown-menu-right shadow animated--grow-in"
