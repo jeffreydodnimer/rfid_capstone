@@ -6,15 +6,7 @@ if (!isset($_SESSION['email'])) {
 }
 $userEmail = $_SESSION['email'];
 
-$servername = "localhost";
-$username = "root";
-$password = "";
-$dbname = "rfid_capstone";
-
-$conn = new mysqli($servername, $username, $password, $dbname);
-if ($conn->connect_error) {
-    die("Connection failed: " . $conn->connect_error);
-}
+include 'conn.php';
 
 $sqlStudents = "SELECT COUNT(*) AS total_students FROM students";
 $resultStudents = $conn->query($sqlStudents);

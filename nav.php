@@ -5,16 +5,7 @@ if (!isset($_SESSION['email'])) {
     exit();
 }
 
-$servername = "localhost";
-$username = "root";
-$password = "";
-$dbname = "rfid_capstone";
-
-$conn = new mysqli($servername, $username, $password, $dbname);
-
-if ($conn->connect_error) {
-    die("Connection failed: " . $conn->connect_error);
-}
+include 'conn.php';
 
 $email = $_SESSION['email'];
 $sql = "SELECT * FROM users WHERE email = ?";
