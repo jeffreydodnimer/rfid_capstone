@@ -137,6 +137,7 @@ if (!$students_result) {
     die("Error fetching students: " . $conn->error); 
 }
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
 
