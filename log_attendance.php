@@ -1,5 +1,5 @@
 <?php
-include 'db_connect.php';
+include 'conn.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $rfid_number = $_POST['rfid_number'];

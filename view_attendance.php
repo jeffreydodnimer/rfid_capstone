@@ -1,5 +1,5 @@
 <?php
-include 'db_connect.php';
+include 'conn.php';
 
 $sql = "SELECT s.firstname, s.lastname, a.date, a.time, e.grade_level, sec.section_name
         FROM attendance a

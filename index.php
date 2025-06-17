@@ -36,11 +36,16 @@
       box-shadow: 0 0 10px rgba(0,0,0,0.1);
     }
 
-    .school-name {
-      font-size: 25px;
-      font-weight: 600;
+    h1 {
+      font-size: 36px;
+      margin: 10px 0;
       color: #333;
-      margin-bottom: 50px;
+    }
+
+    p {
+      font-size: 16px;
+      margin-bottom: 30px;
+      color: #444;
     }
 
     .role-buttons {
@@ -70,6 +75,22 @@
       object-fit: cover;
     }
 
+    .terms {
+      font-size: 12px;
+      margin-top: 25px;
+      max-width: 335px;
+      color: #555;
+    }
+
+    .terms a {
+      color: #007bff;
+      text-decoration: none;
+    }
+
+    .terms a:hover {
+      text-decoration: underline;
+    }
+
     @media (max-width: 767px) {
       .img-side {
         display: none;
@@ -80,6 +101,7 @@
         border-radius: 10px;
       }
     }
+
   </style>
 </head>
 
@@ -95,11 +117,18 @@
       <div class="col-md-4 d-flex justify-content-center align-items-center bg-light">
         <div class="login-box text-center">
           <img src="img/logo.jpg" alt="Logo" class="logo" />
-          <div class="school-name">San Isidro National <br>High School</div>
+          <h1>Hi, Isidorian!</h1>
+          <p>↓ Please click or tap your destination.</p>
           <div class="role-buttons">
             <a href="admin_login.php">Admin</a>
             <a href="faculty_login.php">Faculty</a>
           </div>
+
+          <div class="terms">
+            By using this service, you understood and agree to the PUP Online Services
+            <a href="#">Terms of Use</a> and
+            <a href="#">Privacy Statement</a>.
+        </div>
         </div>
       </div>
     </div>
