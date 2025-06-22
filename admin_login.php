@@ -17,7 +17,6 @@ if (isset($_POST['login'])) {
         // Check password (plain text for now; use password_verify if hashed)
         if ($input_password === $user['password']) {
             $_SESSION['user_id'] = $user['user_id'];
-            $_SESSION['full_name'] = $user['full_name'];
             $_SESSION['email'] = $user['email'];
             $_SESSION['role'] = $user['role'];
 

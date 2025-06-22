@@ -61,9 +61,9 @@ $user = $result->fetch_assoc();
             <div id="collapseTwo" class="collapse" aria-labelledby="headingTwo" data-parent="#accordionSidebar">
                 <div class="bg-white py-2 collapse-inner rounded">
                     <a class="collapse-item" href="students_list.php">Student's List</a>
-                    <a class="collapse-item" href="enroll_student.php">Add Enrollment</a>
-                    <a class="collapse-item" href="add_students_info.php">Add Sections</a>
-                    <a class="collapse-item" href="add_students_info.php">Add Teachers</a>
+                    <a class="collapse-item" href="enrollment.php">Add Enrollment</a>
+                    <a class="collapse-item" href="section_student.php">Add Sections</a>
+                    <a class="collapse-item" href="add_adviser.php">Add Teachers</a>
                     <a class="collapse-item" href="link_rfid.php">Add RFID</a>
                 </div>
             </div>

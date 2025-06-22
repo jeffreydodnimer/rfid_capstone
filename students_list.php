@@ -13,9 +13,9 @@ if (isset($_POST['add_student'])) {
     $lastname = htmlspecialchars($_POST['lastname']);
     $firstname = htmlspecialchars($_POST['firstname']);
     $middlename = htmlspecialchars($_POST['middlename']);
+    $suffix = htmlspecialchars($_POST['suffix']);
     $birthdate = htmlspecialchars($_POST['birthdate']);
     $contact = htmlspecialchars($_POST['contact']);
-    $guardian = htmlspecialchars($_POST['guardian']);
 
     // Check if connection is valid
     if (!$conn) {
@@ -23,7 +23,7 @@ if (isset($_POST['add_student'])) {
         exit();
     }
 
-    $stmt = $conn->prepare("INSERT INTO students (lrn, lastname, firstname, middlename, birthdate, contact, guardian) VALUES (?, ?, ?, ?, ?, ?, ?)");
+    $stmt = $conn->prepare("INSERT INTO students (lrn, lastname, firstname, middlename, suffix, birthdate, contact) VALUES (?, ?, ?, ?, ?, ?, ?)");
 
     // Check if prepare() was successful
     if ($stmt === false) {
@@ -31,7 +31,7 @@ if (isset($_POST['add_student'])) {
         exit();
     }
 
-    $stmt->bind_param("sssssss", $lrn, $lastname, $firstname, $middlename, $birthdate, $contact, $guardian);
+    $stmt->bind_param("sssssss", $lrn, $lastname, $firstname, $middlename, $suffix, $birthdate, $contact);
 
     if ($stmt->execute()) {
         header("Location: students_list.php?status=added");
@@ -85,9 +85,9 @@ if (isset($_POST['edit_student'])) {
     $lastname = htmlspecialchars($_POST['edit_lastname'], ENT_QUOTES, 'UTF-8');
     $firstname = htmlspecialchars($_POST['edit_firstname'], ENT_QUOTES, 'UTF-8');
     $middlename = htmlspecialchars($_POST['edit_middlename'], ENT_QUOTES, 'UTF-8');
+    $suffix = htmlspecialchars($_POST['edit_suffix'], ENT_QUOTES, 'UTF-8');
     $birthdate = htmlspecialchars($_POST['edit_birthdate'], ENT_QUOTES, 'UTF-8');
     $contact = htmlspecialchars($_POST['edit_contact'], ENT_QUOTES, 'UTF-8');
-    $guardian = htmlspecialchars($_POST['edit_guardian'], ENT_QUOTES, 'UTF-8');
 
     // Check if connection is valid
     if (!$conn) {
@@ -100,14 +100,14 @@ if (isset($_POST['edit_student'])) {
 
     try {
         // Prepare the UPDATE statement - update record using the original LRN
-        $stmt = $conn->prepare("UPDATE students SET lrn=?, lastname=?, firstname=?, middlename=?, birthdate=?, contact=?, guardian=? WHERE lrn=?");
+        $stmt = $conn->prepare("UPDATE students SET lrn=?, lastname=?, firstname=?, middlename=?, suffix=?, birthdate=?, contact=? WHERE lrn=?");
 
         // Check if prepare() was successful
         if ($stmt === false) {
             throw new Exception($conn->error);
         }
 
-        $stmt->bind_param("ssssssss", $lrn, $lastname, $firstname, $middlename, $birthdate, $contact, $guardian, $original_lrn);
+        $stmt->bind_param("ssssssss", $lrn, $lastname, $firstname, $middlename, $suffix, $birthdate, $contact, $original_lrn);
 
         if (!$stmt->execute()) {
             throw new Exception($stmt->error);
@@ -173,9 +173,9 @@ if (!$students_result) {
                 $('#edit_lastname').val(student.lastname);
                 $('#edit_firstname').val(student.firstname);
                 $('#edit_middlename').val(student.middlename);
+                $('#edit_suffix').val(student.suffix);
                 $('#edit_birthdate').val(student.birthdate);
                 $('#edit_contact').val(student.contact);
-                $('#edit_guardian').val(student.guardian);
             }
 
             // Check for status messages in URL parameters
@@ -209,7 +209,7 @@ if (!$students_result) {
             <div id="content">
                 <div class="container-fluid">
                     <div class="d-flex justify-content-between align-items-center mb-4">
-                        <h2 class="h3 mb-0 text-gray-800">STUDENTS LIST</h2>
+                        <h2 class="h3 mb-0 text-gray-800">STUDENTS DASHBOARD</h2>
                         <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addStudentModal"
                             style="box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);">Add Student</button>
                     </div>
@@ -225,9 +225,9 @@ if (!$students_result) {
                                             <th class="border px-3 py-2">Lastname</th>
                                             <th class="border px-3 py-2">Firstname</th>
                                             <th class="border px-3 py-2">Middlename</th>
+                                            <th class="border px-3 py-2">Suffix</th>
                                             <th class="border px-3 py-2">Birthdate</th>
                                             <th class="border px-3 py-2">Contact</th>
-                                            <th class="border px-3 py-2">Guardian</th>
                                             <th class="border px-3 py-2">Actions</th>
                                         </tr>
                                     </thead>
@@ -241,9 +241,9 @@ if (!$students_result) {
                                             <td class="border px-3 py-2"><?= htmlspecialchars($row['lastname'] ?? '') ?></td>
                                             <td class="border px-3 py-2"><?= htmlspecialchars($row['firstname'] ?? '') ?></td>
                                             <td class="border px-3 py-2"><?= htmlspecialchars($row['middlename'] ?? '') ?></td>
+                                            <td class="border px-3 py-2"><?= htmlspecialchars($row['suffix'] ?? '') ?></td>
                                             <td class="border px-3 py-2"><?= htmlspecialchars($row['birthdate'] ?? '') ?></td>
                                             <td class="border px-3 py-2"><?= htmlspecialchars($row['contact'] ?? '') ?></td>
-                                            <td class="border px-3 py-2"><?= htmlspecialchars($row['guardian'] ?? '') ?></td>
                                             <td class="border px-3 py-2 space-x-2">
                                                 <button onclick='openEditModal(<?= json_encode($row) ?>)'
                                                     class="text-blue-600 hover:text-blue-800 p-1 rounded">
@@ -306,15 +306,15 @@ if (!$students_result) {
                                                 style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
                                         </div>
                                         <div class="mb-3">
-                                            <input type="date" class="form-control" name="birthdate" placeholder="Enter Birthdate"
+                                            <input type="text" class="form-control" name="suffix" placeholder="Enter Suffix (Jr., III, etc.)"
+                                                style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
+                                        </div>
+                                        <div class="mb-3">
+                                            <input type="date" class="form-control" name="birthdate" placeholder="Enter Birthdate" required
                                                 style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
                                         </div>
                                         <div class="mb-3">
                                             <input type="text" class="form-control" name="contact" placeholder="Enter Contact Number"
-                                                style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
-                                        </div>
-                                        <div class="mb-3">
-                                            <input type="text" class="form-control" name="guardian" placeholder="Enter Guardian's Name"
                                                 style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
                                         </div>
                                         <div class="text-center">
@@ -367,15 +367,15 @@ if (!$students_result) {
                                                 style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
                                         </div>
                                         <div class="mb-3">
-                                            <input type="date" class="form-control" id="edit_birthdate" name="edit_birthdate" placeholder="Enter Birthdate"
+                                            <input type="text" class="form-control" id="edit_suffix" name="edit_suffix" placeholder="Enter Suffix (Jr., III, etc.)"
+                                                style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
+                                        </div>
+                                        <div class="mb-3">
+                                            <input type="date" class="form-control" id="edit_birthdate" name="edit_birthdate" placeholder="Enter Birthdate" required
                                                 style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
                                         </div>
                                         <div class="mb-3">
                                             <input type="text" class="form-control" id="edit_contact" name="edit_contact" placeholder="Enter Contact Number"
-                                                style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
-                                        </div>
-                                        <div class="mb-3">
-                                            <input type="text" class="form-control" id="edit_guardian" name="edit_guardian" placeholder="Enter Guardian's Name"
                                                 style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
                                         </div>
                                         <div class="text-center">
