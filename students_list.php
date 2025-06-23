@@ -31,8 +31,7 @@ if (isset($_POST['add_student'])) {
         exit();
     }
 
-    // Bind parameters:
-    // "i" for LRN, then "s" for lastname, firstname, middlename, suffix,
+    // Bind parameters: "i" for lrn, then "s" for lastname, firstname, middlename, suffix,
     // "i" for age, "s" for birthdate, and "s" for contact.
     $stmt->bind_param("issssiss", $lrn, $lastname, $firstname, $middlename, $suffix, $age, $birthdate, $contact);
 
@@ -103,7 +102,7 @@ if (isset($_POST['edit_student'])) {
             throw new Exception($conn->error);
         }
 
-        // Bind parameters, changing the contact to a string (s) rather than integer.
+        // Bind parameters, note that the contact field is bound as a string ("s").
         $stmt->bind_param("issssissi", $lrn, $lastname, $firstname, $middlename, $suffix, $age, $birthdate, $contact, $original_lrn);
 
         if (!$stmt->execute()) {
@@ -150,43 +149,61 @@ if (!$students_result) {
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
 
     <script>
-        $(document).ready(function() {
-            lucide.createIcons();
+    $(document).ready(function() {
+        lucide.createIcons();
 
-            // Open the Edit Modal and fill in the fields with the selected student info.
-            window.openEditModal = function(student) {
-                $('#editModal').modal('show');
-                // The hidden field "edit_id" stores the original LRN.
-                $('#edit_id').val(student.lrn);
-                // New values allow updating the LRN.
-                $('#edit_lrn').val(student.lrn);
-                $('#edit_lastname').val(student.lastname);
-                $('#edit_firstname').val(student.firstname);
-                $('#edit_middlename').val(student.middlename);
-                $('#edit_suffix').val(student.suffix);
-                $('#edit_age').val(student.age);
-                $('#edit_birthdate').val(student.birthdate);
-                $('#edit_contact').val(student.contact);
-            }
+        // Open the Edit Modal and fill in the fields with the selected student info.
+        window.openEditModal = function(student) {
+            $('#editModal').modal('show');
+            // The hidden field "edit_id" stores the original LRN.
+            $('#edit_id').val(student.lrn);
+            // New values, so the user can update the LRN if desired.
+            $('#edit_lrn').val(student.lrn);
+            $('#edit_lastname').val(student.lastname);
+            $('#edit_firstname').val(student.firstname);
+            $('#edit_middlename').val(student.middlename);
+            $('#edit_suffix').val(student.suffix);
+            $('#edit_age').val(student.age);
+            $('#edit_birthdate').val(student.birthdate);
+            $('#edit_contact').val(student.contact);
+        }
 
-            // Show status messages based on URL parameters.
-            const urlParams = new URLSearchParams(window.location.search);
-            const status = urlParams.get('status');
-            if (status) {
-                let message = "";
-                if (status === "added") {
-                    message = "Student added successfully!";
-                } else if (status === "deleted") {
-                    message = "Student deleted successfully!";
-                } else if (status === "updated") {
-                    message = "Student updated successfully!";
-                }
-                if (message) {
-                    alert(message);
-                    window.history.replaceState({}, document.title, "students_list.php");
-                }
-            }
+        // Calculate Age Automatically When a Birthdate is Selected in the Add Modal.
+        $('#birthdate').change(function(){
+            var dob = new Date($(this).val());
+            var diff = Date.now() - dob.getTime();
+            var ageDate = new Date(diff);
+            var age = Math.abs(ageDate.getUTCFullYear() - 1970);
+            $('#age').val(age);
         });
+        
+        // Similarly, when a user changes the birthdate in the Edit Modal.
+        $('#edit_birthdate').change(function(){
+            var dob = new Date($(this).val());
+            var diff = Date.now() - dob.getTime();
+            var ageDate = new Date(diff);
+            var age = Math.abs(ageDate.getUTCFullYear() - 1970);
+            $('#edit_age').val(age);
+        });
+
+        // Show status messages based on URL parameters.
+        const urlParams = new URLSearchParams(window.location.search);
+        const status = urlParams.get('status');
+        if (status) {
+            let message = "";
+            if (status === "added") {
+                message = "Student added successfully!";
+            } else if (status === "deleted") {
+                message = "Student deleted successfully!";
+            } else if (status === "updated") {
+                message = "Student updated successfully!";
+            }
+            if (message) {
+                alert(message);
+                window.history.replaceState({}, document.title, "students_list.php");
+            }
+        }
+    });
     </script>
 </head>
 <body id="page-top">
@@ -240,7 +257,7 @@ if (!$students_result) {
                                                     <i data-lucide="pencil" class="w-5 h-5 inline"></i>
                                                 </button>
                                                 <!-- Delete Form -->
-                                                <form method="POST" class="inline" onsubmit="return confirm('Are you sure you want to delete <?= htmlspecialchars($row['firstname'] . ' ' . $row['lastname']) ?>?');">
+                                                <form method="POST" class="inline" onsubmit="return confirm('Are you sure you want to delete <?= htmlspecialchars($row['firstname'] .' '. $row['lastname']) ?>?');">
                                                     <input type="hidden" name="student_lrn" value="<?= htmlspecialchars($row['lrn'] ?? '') ?>" />
                                                     <button type="submit" name="delete_student" class="text-red-600 hover:text-red-800 p-1 rounded">
                                                         <i data-lucide="trash" class="w-5 h-5 inline"></i>
@@ -297,10 +314,11 @@ if (!$students_result) {
                                         </div>
                                         <!-- Age Field -->
                                         <div class="mb-3">
-                                            <input type="number" class="form-control" name="age" placeholder="Enter Age" required style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
+                                            <input type="number" class="form-control" id="age" name="age" placeholder="Student Age" required style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
                                         </div>
                                         <div class="mb-3">
-                                            <input type="date" class="form-control" name="birthdate" placeholder="Enter Birthdate" required style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
+                                            <!-- Add id "birthdate" to attach change event -->
+                                            <input type="date" class="form-control" id="birthdate" name="birthdate" placeholder="Enter Birthdate" required style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
                                         </div>
                                         <div class="mb-3">
                                             <!-- For contact, using type="text" preserves any formatting or leading zeros -->
@@ -387,7 +405,7 @@ if (!$students_result) {
     <footer class="sticky-footer bg-white">
         <div class="container my-auto">
             <div class="copyright text-center my-auto">
-                <span>Copyright &copy; Your Website 06/2025</span>
+                <span>&copy; Your Website 06/2025</span>
             </div>
         </div>
     </footer>

@@ -19,7 +19,7 @@ if (isset($_POST['add_section'])) {
     $adviser_id = filter_var($_POST['adviser_id'], FILTER_VALIDATE_INT);
 
     if (empty($section_name) || empty($grade_level) || $adviser_id === false) {
-        echo "<script>alert('All fields are required.'); window.location.href='sections.php';</script>";
+        echo "<script>alert('All fields are required.'); window.location.href='section_student.php';</script>";
         exit();
     }
 
@@ -28,7 +28,7 @@ if (isset($_POST['add_section'])) {
     $dup_stmt->bind_param("ss", $section_name, $grade_level);
     $dup_stmt->execute();
     if ($dup_stmt->get_result()->num_rows > 0) {
-        echo "<script>alert('Error: A section with this name already exists for this grade level.'); window.location.href='sections.php';</script>";
+        echo "<script>alert('Error: A section with this name already exists for this grade level.'); window.location.href='section_student.php';</script>";
         exit();
     }
     $dup_stmt->close();
@@ -36,9 +36,9 @@ if (isset($_POST['add_section'])) {
     $stmt = $conn->prepare("INSERT INTO sections (section_name, grade_level, adviser_id) VALUES (?, ?, ?)");
     $stmt->bind_param("ssi", $section_name, $grade_level, $adviser_id);
     if ($stmt->execute()) {
-        header("Location: sections.php?status=added");
+        header("Location: section_student.php?status=added");
     } else {
-        echo "<script>alert('Error adding section.'); window.location.href='sections.php';</script>";
+        echo "<script>alert('Error adding section.'); window.location.href='section_student.php';</script>";
     }
     exit();
 }
@@ -53,7 +53,7 @@ if (isset($_POST['edit_section'])) {
     $adviser_id = filter_var($_POST['edit_adviser_id'], FILTER_VALIDATE_INT);
 
     if (!$section_id || empty($section_name) || empty($grade_level) || $adviser_id === false) {
-        echo "<script>alert('All fields are required for editing.'); window.location.href='sections.php';</script>";
+        echo "<script>alert('All fields are required for editing.'); window.location.href='section_student.php';</script>";
         exit();
     }
     
@@ -62,7 +62,7 @@ if (isset($_POST['edit_section'])) {
     $dup_stmt->bind_param("ssi", $section_name, $grade_level, $section_id);
     $dup_stmt->execute();
     if ($dup_stmt->get_result()->num_rows > 0) {
-        echo "<script>alert('Error: Another section with this name already exists for this grade level.'); window.location.href='sections.php';</script>";
+        echo "<script>alert('Error: Another section with this name already exists for this grade level.'); window.location.href='section_student.php';</script>";
         exit();
     }
     $dup_stmt->close();
@@ -70,9 +70,9 @@ if (isset($_POST['edit_section'])) {
     $stmt = $conn->prepare("UPDATE sections SET section_name=?, grade_level=?, adviser_id=? WHERE section_id=?");
     $stmt->bind_param("ssii", $section_name, $grade_level, $adviser_id, $section_id);
     if ($stmt->execute()) {
-        header("Location: sections.php?status=updated");
+        header("Location: section_student.php?status=updated");
     } else {
-        echo "<script>alert('Error updating section.'); window.location.href='sections.php';</script>";
+        echo "<script>alert('Error updating section.'); window.location.href='section_student.php';</script>";
     }
     exit();
 }
@@ -89,9 +89,9 @@ if (isset($_POST['delete_section'])) {
         $stmt = $conn->prepare("DELETE FROM sections WHERE section_id = ?");
         $stmt->bind_param("i", $section_id);
         if ($stmt->execute()) {
-            header("Location: sections.php?status=deleted");
+            header("Location: section_student.php?status=deleted");
         } else {
-            echo "<script>alert('Error: Could not delete section. It might be in use by enrolled students.'); window.location.href='sections.php';</script>";
+            echo "<script>alert('Error: Could not delete section. It might be in use by enrolled students.'); window.location.href='section_student.php';</script>";
         }
         exit();
     }

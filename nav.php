@@ -64,7 +64,7 @@ $user = $result->fetch_assoc();
                     <a class="collapse-item" href="add_adviser.php">Add Teachers</a>
                     <a class="collapse-item" href="section_student.php">Add Section</a>
                     <a class="collapse-item" href="enrollment.php">Add Enrollment</a>
-                    <a class="collapse-item" href="">Add Guardian</a>
+                    <a class="collapse-item" href="guardian.php">Add Guardian</a>
                     <a class="collapse-item" href="link_rfid.php">Add RFID</a>
                 </div>
             </div>
