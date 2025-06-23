@@ -26,7 +26,7 @@ $user = $result->fetch_assoc();
         <!-- Sidebar - Brand -->
         <a class="sidebar-brand d-flex align-items-center justify-content-center">
             <div class="d-flex align-items-center mb-3">
-                <img src="imG/logo.jpg" alt="Admin Profile Picture" class="rounded-circle" 
+                <img src="img/logo.jpg" alt="Admin Profile Picture" class="rounded-circle" 
                      style="width: 95px; height: 95px; object-fit: fit; border-radius: 50%; padding: 5px; margin-top: 70px;">
             </div>
             <div class="strong">
