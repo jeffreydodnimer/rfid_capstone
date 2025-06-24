@@ -9,7 +9,7 @@ include 'conn.php';
 
 // Handle Add Student
 if (isset($_POST['add_student'])) {
-    // Cast numeric values for LRN and Age; for contact we keep it as a string.
+    // Cast numeric values for LRN and Age
     $lrn       = (int) htmlspecialchars($_POST['lrn']);
     $lastname  = htmlspecialchars($_POST['lastname']);
     $firstname = htmlspecialchars($_POST['firstname']);
@@ -17,23 +17,21 @@ if (isset($_POST['add_student'])) {
     $suffix    = htmlspecialchars($_POST['suffix']);
     $age       = (int) htmlspecialchars($_POST['age']);
     $birthdate = htmlspecialchars($_POST['birthdate']);
-    // DO NOT cast contact to int—preserve formatting (ex: leading zeros)
-    $contact   = htmlspecialchars($_POST['contact']);
 
     if (!$conn) {
         echo "<script>alert('Database connection failed for adding student.'); window.location.href='students_list.php';</script>";
         exit();
     }
 
-    $stmt = $conn->prepare("INSERT INTO students (lrn, lastname, firstname, middlename, suffix, age, birthdate, contact) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+    $stmt = $conn->prepare("INSERT INTO students (lrn, lastname, firstname, middlename, suffix, age, birthdate) VALUES (?, ?, ?, ?, ?, ?, ?)");
     if ($stmt === false) {
         echo "<script>alert('Error preparing add statement: " . $conn->error . "'); window.location.href='students_list.php';</script>";
         exit();
     }
 
     // Bind parameters: "i" for lrn, then "s" for lastname, firstname, middlename, suffix,
-    // "i" for age, "s" for birthdate, and "s" for contact.
-    $stmt->bind_param("issssiss", $lrn, $lastname, $firstname, $middlename, $suffix, $age, $birthdate, $contact);
+    // "i" for age, and "s" for birthdate.
+    $stmt->bind_param("issssii", $lrn, $lastname, $firstname, $middlename, $suffix, $age, $birthdate);
 
     if ($stmt->execute()) {
         header("Location: students_list.php?status=added");
@@ -48,7 +46,7 @@ if (isset($_POST['add_student'])) {
 if (isset($_POST['delete_student'])) {
     // Cast student_lrn to int
     $lrn = (int) $_POST['student_lrn'];
-    
+
     if (!$conn) {
         echo "<script>alert('Database connection failed for deleting student.'); window.location.href='students_list.php';</script>";
         exit();
@@ -85,8 +83,6 @@ if (isset($_POST['edit_student'])) {
     $suffix       = htmlspecialchars($_POST['edit_suffix'], ENT_QUOTES, 'UTF-8');
     $age          = (int) htmlspecialchars($_POST['edit_age'], ENT_QUOTES, 'UTF-8');
     $birthdate    = htmlspecialchars($_POST['edit_birthdate'], ENT_QUOTES, 'UTF-8');
-    // Keep the contact field as string to preserve the exact input.
-    $contact      = htmlspecialchars($_POST['edit_contact'], ENT_QUOTES, 'UTF-8');
 
     if (!$conn) {
         echo "<script>alert('Database connection failed for editing student.'); window.location.href='students_list.php';</script>";
@@ -97,13 +93,13 @@ if (isset($_POST['edit_student'])) {
 
     try {
         // Update record using the original LRN in the WHERE clause.
-        $stmt = $conn->prepare("UPDATE students SET lrn=?, lastname=?, firstname=?, middlename=?, suffix=?, age=?, birthdate=?, contact=? WHERE lrn=?");
+        $stmt = $conn->prepare("UPDATE students SET lrn=?, lastname=?, firstname=?, middlename=?, suffix=?, age=?, birthdate=? WHERE lrn=?");
         if ($stmt === false) {
             throw new Exception($conn->error);
         }
 
-        // Bind parameters, note that the contact field is bound as a string ("s").
-        $stmt->bind_param("issssissi", $lrn, $lastname, $firstname, $middlename, $suffix, $age, $birthdate, $contact, $original_lrn);
+        // Bind parameters
+        $stmt->bind_param("issssiii", $lrn, $lastname, $firstname, $middlename, $suffix, $age, $birthdate, $original_lrn);
 
         if (!$stmt->execute()) {
             throw new Exception($stmt->error);
@@ -165,7 +161,6 @@ if (!$students_result) {
             $('#edit_suffix').val(student.suffix);
             $('#edit_age').val(student.age);
             $('#edit_birthdate').val(student.birthdate);
-            $('#edit_contact').val(student.contact);
         }
 
         // Calculate Age Automatically When a Birthdate is Selected in the Add Modal.
@@ -176,7 +171,7 @@ if (!$students_result) {
             var age = Math.abs(ageDate.getUTCFullYear() - 1970);
             $('#age').val(age);
         });
-        
+
         // Similarly, when a user changes the birthdate in the Edit Modal.
         $('#edit_birthdate').change(function(){
             var dob = new Date($(this).val());
@@ -233,12 +228,11 @@ if (!$students_result) {
                                             <th class="border px-3 py-2">Suffix</th>
                                             <th class="border px-3 py-2">Age</th>
                                             <th class="border px-3 py-2">Birthdate</th>
-                                            <th class="border px-3 py-2">Contact</th>
                                             <th class="border px-3 py-2">Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        <?php 
+                                        <?php
                                         $counter = 1;
                                         while ($row = $students_result->fetch_assoc()): ?>
                                         <tr class="hover:bg-gray-50">
@@ -250,7 +244,6 @@ if (!$students_result) {
                                             <td class="border px-3 py-2"><?= htmlspecialchars($row['suffix'] ?? '') ?></td>
                                             <td class="border px-3 py-2"><?= htmlspecialchars($row['age'] ?? '') ?></td>
                                             <td class="border px-3 py-2"><?= htmlspecialchars($row['birthdate'] ?? '') ?></td>
-                                            <td class="border px-3 py-2"><?= htmlspecialchars($row['contact'] ?? '') ?></td>
                                             <td class="border px-3 py-2 space-x-2">
                                                 <!-- Edit Button -->
                                                 <button onclick='openEditModal(<?= json_encode($row) ?>)' class="text-blue-600 hover:text-blue-800 p-1 rounded">
@@ -268,7 +261,7 @@ if (!$students_result) {
                                         <?php endwhile; ?>
                                         <?php if ($students_result->num_rows === 0): ?>
                                             <tr>
-                                                <td colspan="10" class="border px-3 py-2 text-center text-gray-500">No students found.</td>
+                                                <td colspan="9" class="border px-3 py-2 text-center text-gray-500">No students found.</td>
                                             </tr>
                                         <?php endif; ?>
                                     </tbody>
@@ -277,7 +270,7 @@ if (!$students_result) {
                         </div>
                     </div>
                 </div>
-            </div>          
+            </div>
         </div>
     </div>
 
@@ -319,10 +312,6 @@ if (!$students_result) {
                                         <div class="mb-3">
                                             <!-- Add id "birthdate" to attach change event -->
                                             <input type="date" class="form-control" id="birthdate" name="birthdate" placeholder="Enter Birthdate" required style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
-                                        </div>
-                                        <div class="mb-3">
-                                            <!-- For contact, using type="text" preserves any formatting or leading zeros -->
-                                            <input type="text" class="form-control" name="contact" placeholder="Enter Contact Number" style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
                                         </div>
                                         <div class="text-center">
                                             <button type="submit" name="add_student" class="btn btn-primary px-4">Register Student</button>
@@ -379,10 +368,6 @@ if (!$students_result) {
                                         </div>
                                         <div class="mb-3">
                                             <input type="date" class="form-control" id="edit_birthdate" name="edit_birthdate" placeholder="Enter Birthdate" required style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
-                                        </div>
-                                        <div class="mb-3">
-                                            <!-- Use type="text" for contact -->
-                                            <input type="text" class="form-control" id="edit_contact" name="edit_contact" placeholder="Enter Contact Number" style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
                                         </div>
                                         <div class="text-center">
                                             <button type="submit" name="edit_student" class="btn btn-primary px-4">Update Student</button>
