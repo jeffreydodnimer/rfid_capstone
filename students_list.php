@@ -29,9 +29,8 @@ if (isset($_POST['add_student'])) {
         exit();
     }
 
-    // Bind parameters: "i" for lrn, then "s" for lastname, firstname, middlename, suffix,
-    // "i" for age, and "s" for birthdate.
-    $stmt->bind_param("issssii", $lrn, $lastname, $firstname, $middlename, $suffix, $age, $birthdate);
+    // CORRECTED: The type for birthdate is 's' (string), not 'i' (integer).
+    $stmt->bind_param("issssis", $lrn, $lastname, $firstname, $middlename, $suffix, $age, $birthdate);
 
     if ($stmt->execute()) {
         header("Location: students_list.php?status=added");
@@ -55,6 +54,8 @@ if (isset($_POST['delete_student'])) {
     $conn->begin_transaction();
 
     try {
+        // To prevent foreign key errors, set ON DELETE CASCADE in your database
+        // or delete from child tables (enrollments, rfid) here first.
         $stmt = $conn->prepare("DELETE FROM students WHERE lrn = ?");
         $stmt->bind_param("i", $lrn);
         if (!$stmt->execute()) {
@@ -98,8 +99,8 @@ if (isset($_POST['edit_student'])) {
             throw new Exception($conn->error);
         }
 
-        // Bind parameters
-        $stmt->bind_param("issssiii", $lrn, $lastname, $firstname, $middlename, $suffix, $age, $birthdate, $original_lrn);
+        // CORRECTED: The type for birthdate is 's' (string).
+        $stmt->bind_param("issssisi", $lrn, $lastname, $firstname, $middlename, $suffix, $age, $birthdate, $original_lrn);
 
         if (!$stmt->execute()) {
             throw new Exception($stmt->error);

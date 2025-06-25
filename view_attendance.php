@@ -1,33 +1,61 @@
 <?php
-include 'conn.php';
+// Database Configuration
+$host       = 'localhost';
+$db_name    = 'rfid_capstone';
+$username   = 'root';
+$password   = '';
 
-$sql = "SELECT s.firstname, s.lastname, a.date, a.time, e.grade_level, sec.section_name
-        FROM attendance a
-        JOIN students s ON a.lrn = s.lrn
-        JOIN enrollments e ON a.enrollment_id = e.enrollment_id
-        JOIN sections sec ON e.section_id = sec.section_id
-        ORDER BY a.date DESC, a.time DESC";
+// Establish Database Connection
+try {
+    $pdo = new PDO("mysql:host=$host;dbname=$db_name;charset=utf8", $username, $password);
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    die("Connection failed: " . $e->getMessage());
+}
 
-$result = $conn->query($sql);
+// Fetch Attendance Records
+$attendanceRecords = [];
+$stmt = $pdo->query("SELECT a.*, s.firstname, s.lastname FROM attendance a INNER JOIN students s ON a.lrn = s.lrn ORDER BY a.date DESC, a.time_in DESC");
+$attendanceRecords = $stmt->fetchAll();
+
 ?>
-
-<h2>Attendance Records</h2>
-<table border="1">
-    <tr>
-        <th>Name</th>
-        <th>Grade</th>
-        <th>Section</th>
-        <th>Date</th>
-        <th>Time</th>
-    </tr>
-
-    <?php while ($row = $result->fetch_assoc()): ?>
-    <tr>
-        <td><?= $row['firstname'] . ' ' . $row['lastname'] ?></td>
-        <td><?= $row['grade_level'] ?></td>
-        <td><?= $row['section_name'] ?></td>
-        <td><?= $row['date'] ?></td>
-        <td><?= $row['time'] ?></td>
-    </tr>
-    <?php endwhile; ?>
-</table>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Attendance Records</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Styles omitted for brevity... */
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Attendance Records</h1>
+        <table>
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Student Name</th>
+                    <th>Time In</th>
+                    <th>Time Out</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($attendanceRecords as $record): ?>
+                    <tr>
+                        <td><?= htmlspecialchars($record['date']) ?></td>
+                        <td><?= htmlspecialchars($record['firstname'] . ' ' . $record['lastname']) ?></td>
+                        <td><?= htmlspecialchars($record['time_in']) ?></td>
+                        <td><?= htmlspecialchars($record['time_out'] ?? 'N/A') ?></td>
+                        <td><?= htmlspecialchars(ucfirst($record['status'])) ?></td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>

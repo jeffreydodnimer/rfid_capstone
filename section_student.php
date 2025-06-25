@@ -33,12 +33,22 @@ if (isset($_POST['add_section'])) {
     }
     $dup_stmt->close();
 
+    // Check if the adviser is already assigned to this grade level
+    $adviser_check_stmt = $conn->prepare("SELECT section_id FROM sections WHERE adviser_id = ? AND grade_level = ?");
+    $adviser_check_stmt->bind_param("is", $adviser_id, $grade_level);
+    $adviser_check_stmt->execute();
+    if ($adviser_check_stmt->get_result()->num_rows > 0) {
+        echo "<script>alert('Error: This adviser is already assigned to another section in this grade level.'); window.location.href='section_student.php';</script>";
+        exit();
+    }
+    $adviser_check_stmt->close();
+
     $stmt = $conn->prepare("INSERT INTO sections (section_name, grade_level, adviser_id) VALUES (?, ?, ?)");
     $stmt->bind_param("ssi", $section_name, $grade_level, $adviser_id);
     if ($stmt->execute()) {
         header("Location: section_student.php?status=added");
     } else {
-        echo "<script>alert('Error adding section.'); window.location.href='section_student.php';</script>";
+        echo "<script>alert('Error: This adviser is already assigned'); window.location.href='section_student.php';</script>";
     }
     exit();
 }
@@ -57,7 +67,7 @@ if (isset($_POST['edit_section'])) {
         exit();
     }
     
-    // Check for duplicate, excluding the current section being edited
+    // Check for duplicate section name, excluding the current section being edited
     $dup_stmt = $conn->prepare("SELECT section_id FROM sections WHERE section_name = ? AND grade_level = ? AND section_id != ?");
     $dup_stmt->bind_param("ssi", $section_name, $grade_level, $section_id);
     $dup_stmt->execute();
@@ -67,25 +77,31 @@ if (isset($_POST['edit_section'])) {
     }
     $dup_stmt->close();
 
+    // Check if the adviser is already assigned to this grade level (in another section)
+    $adviser_check_stmt = $conn->prepare("SELECT section_id FROM sections WHERE adviser_id = ? AND grade_level = ? AND section_id != ?");
+    $adviser_check_stmt->bind_param("isi", $adviser_id, $grade_level, $section_id);
+    $adviser_check_stmt->execute();
+    if ($adviser_check_stmt->get_result()->num_rows > 0) {
+        echo "<script>alert('Error: This adviser is already assigned to another section in this grade level.'); window.location.href='section_student.php';</script>";
+        exit();
+    }
+    $adviser_check_stmt->close();
+
     $stmt = $conn->prepare("UPDATE sections SET section_name=?, grade_level=?, adviser_id=? WHERE section_id=?");
     $stmt->bind_param("ssii", $section_name, $grade_level, $adviser_id, $section_id);
     if ($stmt->execute()) {
         header("Location: section_student.php?status=updated");
     } else {
-        echo "<script>alert('Error updating section.'); window.location.href='section_student.php';</script>";
+        echo "<script>alert('Error: This adviser is already assigned'); window.location.href='section_student.php';</script>";
     }
     exit();
 }
 
-/**
- * Handle Delete Section
- */
+
+ // Handle Delete Section
 if (isset($_POST['delete_section'])) {
     $section_id = filter_var($_POST['section_id'], FILTER_VALIDATE_INT);
     if ($section_id) {
-        // Optional: Check if any students are enrolled in this section before deleting
-        // $check_stmt = $conn->prepare("SELECT COUNT(*) as count FROM enrollments WHERE section_id = ?"); ...
-        
         $stmt = $conn->prepare("DELETE FROM sections WHERE section_id = ?");
         $stmt->bind_param("i", $section_id);
         if ($stmt->execute()) {
@@ -265,6 +281,7 @@ $sections_result = $conn->query($sections_query);
 
         function openEditModal(data) {
             document.getElementById('edit_section_id').value = data.section_id;
+            // CORRECTED: Changed data.section__name (two underscores) to data.section_name (one underscore)
             document.getElementById('edit_section_name').value = data.section_name;
             document.getElementById('edit_grade_level').value = data.grade_level;
             document.getElementById('edit_adviser_id').value = data.adviser_id;

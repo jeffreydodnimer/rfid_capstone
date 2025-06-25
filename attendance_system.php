@@ -1,9 +1,9 @@
 <?php
 // Database Configuration
-$host      = 'localhost';
-$db_name   = 'rfid_attendance_db';
-$username  = 'root';
-$password  = '';
+$host       = 'localhost';
+$db_name    = 'rfid_capstone';
+$username   = 'root';
+$password   = '';
 
 // Establish Database Connection
 try {
@@ -16,12 +16,33 @@ try {
 
 date_default_timezone_set('Asia/Manila');
 
-$message             = '';
-$student_info        = null;
+$message            = '';
+$student_info       = null;
 $attendance_recorded = false;
-$last_action_time    = '';
-$last_action_type    = '';
-$last_status         = '';
+$last_action_time   = '';
+$last_action_type   = '';
+$last_status        = '';
+
+// Get current time details for display and logic
+$current_datetime_str = date('Y-m-d H:i:s');
+$current_time_str     = date('H:i:s');
+$current_date_str     = date('Y-m-d');
+$current_day_name     = date('l'); // Full day name (e.g., Monday)
+$formatted_date       = date('F j, Y'); // e.g., June 23, 2025
+
+// Define current school year (you may want to make this configurable)
+$current_school_year = '2024-2025'; // Adjust this as needed
+
+// Define Active Time Windows for display
+$morning_start = '06:00 AM';
+$morning_end   = '09:00 AM';
+$afternoon_start = '04:00 PM';
+$afternoon_end   = '06:00 PM';
+
+// Check if system is currently active
+$is_morning_session   = ($current_time_str >= '06:00:00' && $current_time_str <= '09:00:00');
+$is_afternoon_session = ($current_time_str >= '16:00:00' && $current_time_str <= '18:00:00');
+$system_active        = $is_morning_session || $is_afternoon_session;
 
 // Handle RFID Scan
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['rfid_uid'])) {
@@ -30,98 +51,121 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['rfid_uid'])) {
     if (empty($rfid_uid)) {
         $message = '<div class="alert error">Please scan an RFID card.</div>';
     } else {
-        // Look up the student by RFID UID
-        $stmt = $pdo->prepare("SELECT * FROM students WHERE rfid_uid = :rfid_uid");
-        $stmt->execute(['rfid_uid' => $rfid_uid]);
+        // Look up the student by RFID number and get their current enrollment
+        $stmt = $pdo->prepare("
+            SELECT s.*, r.rfid_number, e.enrollment_id, e.grade_level, e.section_id, e.school_year,
+                   sec.section_name, 
+                   CONCAT_WS(' ', adv.firstname, adv.lastname) AS adviser_name
+            FROM students s 
+            INNER JOIN rfid r ON s.lrn = r.lrn 
+            INNER JOIN enrollments e ON s.lrn = e.lrn
+            LEFT JOIN sections sec ON e.section_id = sec.section_id
+            LEFT JOIN advisers adv ON sec.adviser_id = adv.adviser_id
+            WHERE r.rfid_number = :rfid_number 
+              AND e.school_year = :school_year
+            ORDER BY e.enrollment_id DESC
+            LIMIT 1
+        ");
+        $stmt->execute([
+            'rfid_number' => $rfid_uid,
+            'school_year' => $current_school_year
+        ]);
         $student = $stmt->fetch();
 
         if ($student) {
-            $student_info         = $student;
-            $current_datetime_str = date('Y-m-d H:i:s');
-            $current_time_str     = date('H:i:s');
-            $current_date_str     = date('Y-m-d');
+            $student_info = $student;
+            $student_lrn = $student['lrn'];
+            $enrollment_id = $student['enrollment_id']; // Get enrollment ID
 
-            // Define Active Time Windows
-            $is_morning_session   = ($current_time_str >= '09:00:00' && $current_time_str <= '11:00:00');
-            $is_afternoon_session = ($current_time_str >= '16:00:00' && $current_time_str <= '17:00:00');
-
-            // Check for today's attendance record
-            $stmt_check = $pdo->prepare("
-                SELECT * FROM attendance 
-                WHERE rfid_uid = :rfid_uid 
-                  AND DATE(time_in) = :current_date
-            ");
-            $stmt_check->execute(['rfid_uid' => $rfid_uid, 'current_date' => $current_date_str]);
-            $todays_record = $stmt_check->fetch();
-
-            if ($is_morning_session) {
-                // --- TIME IN LOGIC ---
-                if ($todays_record) {
-                    $message = '<div class="alert info">' . htmlspecialchars($student['name']) . ' has already timed in today.</div>';
-                } else {
-                    // Present if scanned before 10:30:00; Late if at or after 10:30:00
-                    $status = ($current_time_str < '10:30:00') ? 'present' : 'late';
-                    
-                    $stmt_insert = $pdo->prepare("
-                        INSERT INTO attendance (rfid_uid, time_in, status)
-                        VALUES (:rfid_uid, :time_in, :status)
-                    ");
-                    if ($stmt_insert->execute([
-                        'rfid_uid' => $rfid_uid,
-                        'time_in'  => $current_datetime_str,
-                        'status'   => $status
-                    ])) {
-                        $message             = '<div class="alert success">Time In recorded for ' . htmlspecialchars($student['name']) . '. Status: ' . ucfirst($status) . '.</div>';
-                        $attendance_recorded = true;
-                        $last_action_time    = $current_datetime_str;
-                        $last_action_type    = "Time In";
-                        $last_status         = $status;
-                    } else {
-                        $message = '<div class="alert error">Error recording Time In.</div>';
-                    }
-                }
-            } elseif ($is_afternoon_session) {
-                // --- TIME OUT LOGIC ---
-                if (!$todays_record) {
-                    $message = '<div class="alert error">Cannot Time Out. ' . htmlspecialchars($student['name']) . ' did not time in this morning.</div>';
-                } elseif ($todays_record['time_out'] !== null) {
-                    $message = '<div class="alert info">' . htmlspecialchars($student['name']) . ' has already timed out today.</div>';
-                } else {
-                    $stmt_update = $pdo->prepare("
-                        UPDATE attendance 
-                        SET time_out = :time_out 
-                        WHERE id = :id
-                    ");
-                    if ($stmt_update->execute([
-                        'time_out' => $current_datetime_str,
-                        'id'       => $todays_record['id']
-                    ])) {
-                        $message             = '<div class="alert success">Time Out recorded successfully for ' . htmlspecialchars($student['name']) . '.</div>';
-                        $attendance_recorded = true;
-                        $last_action_time    = $current_datetime_str;
-                        $last_action_type    = "Time Out";
-                    } else {
-                        $message = '<div class="alert error">Error recording Time Out.</div>';
-                    }
-                }
+            // Validate enrollment
+            if (!$enrollment_id) {
+                $message = '<div class="alert error">Student is not enrolled for the current school year (' . $current_school_year . ').</div>';
             } else {
-                // --- SYSTEM INACTIVE ---
-                $message = '<div class="alert error">The attendance system is currently inactive. Please try again during the active hours (9:00-11:00 AM for Time In or 4:00-5:00 PM for Time Out).</div>';
+                // Check for today's attendance record using both LRN and enrollment_id
+                $stmt_check = $pdo->prepare("
+                    SELECT * FROM attendance
+                    WHERE lrn = :lrn
+                      AND enrollment_id = :enrollment_id
+                      AND date = :current_date
+                ");
+                $stmt_check->execute([
+                    'lrn' => $student_lrn, 
+                    'enrollment_id' => $enrollment_id,
+                    'current_date' => $current_date_str
+                ]);
+                $todays_record = $stmt_check->fetch();
+
+                if ($is_morning_session) {
+                    // --- TIME IN LOGIC ---
+                    if ($todays_record) {
+                        $message = '<div class="alert info">' . htmlspecialchars($student['firstname'] . ' ' . $student['lastname']) . ' has already timed in today.</div>';
+                    } else {
+                        // Present if scanned before 8:30:00; Late if at or after 10:30:00
+                        $status = ($current_time_str < '08:30:00') ? 'present' : 'late';
+
+                        $stmt_insert = $pdo->prepare("
+                            INSERT INTO attendance (lrn, enrollment_id, date, time_in, status)
+                            VALUES (:lrn, :enrollment_id, :date, :time_in, :status)
+                        ");
+                        if ($stmt_insert->execute([
+                            'lrn' => $student_lrn,
+                            'enrollment_id' => $enrollment_id,
+                            'date' => $current_date_str,
+                            'time_in' => $current_datetime_str,
+                            'status' => $status
+                        ])) {
+                            $message = '<div class="alert success">Time In recorded for ' . htmlspecialchars($student['firstname'] . ' ' . $student['lastname']) . '. Status: ' . ucfirst($status) . '.</div>';
+                            $attendance_recorded = true;
+                            $last_action_time = $current_datetime_str;
+                            $last_action_type = "Time In";
+                            $last_status = $status;
+                        } else {
+                            $message = '<div class="alert error">Error recording Time In.</div>';
+                        }
+                    }
+                } elseif ($is_afternoon_session) {
+                    // --- TIME OUT LOGIC ---
+                    if (!$todays_record) {
+                        $message = '<div class="alert error">Cannot Time Out. ' . htmlspecialchars($student['firstname'] . ' ' . $student['lastname']) . ' did not time in this morning.</div>';
+                    } elseif ($todays_record['time_out'] !== null) {
+                        $message = '<div class="alert info">' . htmlspecialchars($student['firstname'] . ' ' . $student['lastname']) . ' has already timed out today.</div>';
+                    } else {
+                        $stmt_update = $pdo->prepare("
+                            UPDATE attendance
+                            SET time_out = :time_out
+                            WHERE attendance_id = :attendance_id
+                        ");
+                        if ($stmt_update->execute([
+                            'time_out' => $current_datetime_str,
+                            'attendance_id' => $todays_record['attendance_id']
+                        ])) {
+                            $message = '<div class="alert success">Time Out recorded successfully for ' . htmlspecialchars($student['firstname'] . ' ' . $student['lastname']) . '.</div>';
+                            $attendance_recorded = true;
+                            $last_action_time = $current_datetime_str;
+                            $last_action_type = "Time Out";
+                        } else {
+                            $message = '<div class="alert error">Error recording Time Out.</div>';
+                        }
+                    }
+                } else {
+                    // --- SYSTEM INACTIVE ---
+                    $message = '<div class="alert error">The attendance system is currently inactive. Please try again during the active hours (6:00-9:00 AM for Time In or 4:00-6:00 PM for Time Out).</div>';
+                }
             }
         } else {
-            $message = '<div class="alert error">RFID card not registered.</div>';
+            $message = '<div class="alert error">RFID card not registered or student not enrolled for current school year.</div>';
         }
     }
 }
 
 // --- Automated Task to Mark Absences ---
 $current_time = date('H:i:s');
-if ($current_time > '17:00:00') {
+if ($current_time > '18:00:00') {
     $stmt_absent = $pdo->prepare("
-        UPDATE attendance 
+        UPDATE attendance
         SET status = 'absent'
-        WHERE DATE(time_in) = :current_date 
-          AND time_out IS NULL 
+        WHERE date = :current_date
+          AND time_out IS NULL
           AND status != 'absent'
     ");
     $stmt_absent->execute(['current_date' => date('Y-m-d')]);
@@ -133,69 +177,311 @@ if ($current_time > '17:00:00') {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>San Isidro National High School RFID Attendance Monitoring System</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: #f8f9fa; margin: 0; padding: 10px; color: #343a40; }
-        .container { max-width: 1000px; margin: 20px auto; background-color: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
-        .header-container {
-            text-align: center;
-            margin-bottom: 25px;
+        :root {
+            --primary-blue: #2c7be5;
+            --light-blue: #e8f0fe;
+            --dark-blue: #1c57b9;
+            --text-dark: #344767;
+            --text-medium: #67748e;
+            --text-light: #9ba8b9;
+            --success-green: #28a745;
+            --error-red: #dc3545;
+            --info-blue: #17a2b8;
+            --warning-orange: #ffc107;
+            --border-color: #e2e8f0;
+            --box-shadow: 0 4px 6px rgba(0,0,0,0.1), 0 1px 3px rgba(0,0,0,0.08);
+            --container-bg: rgba(255, 255, 255, 0.80);
+            --background-overlay: rgba(0, 0, 0, 0.45);
         }
-        .header-logo {
-            max-height: 90px; /* Adjust size as needed */
-            margin-bottom: 15px;
-        }
-        h1 {
-            color: #0056b3;
-            text-align: center;
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
             margin: 0;
-            line-height: 1.2;
-            font-size: 1.9em;
-        }
-        h1 .sub-heading {
-            display: block;
-            font-size: 0.75em;
-            font-weight: normal;
-        }
-        .form-group { margin-bottom: 25px; text-align: center; }
-        .inline-form { display: flex; justify-content: center; align-items: center; }
-        .inline-form input { width: 60%; padding: 12px; border: 1px solid #ced4da; border-radius: 4px; font-size: 16px; margin-right: 10px; }
-        .inline-form input:focus { border-color: #80bdff; box-shadow: 0 0 0 .2rem rgba(0,123,255,.25); }
-        .form-group button { padding: 12px 24px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; transition: background-color 0.2s; }
-        .form-group button:hover { background-color: #0056b3; }
-        .alert { padding: 15px; margin-bottom: 20px; border-radius: 4px; text-align: center; border: 1px solid transparent; }
-        .alert.success { background-color: #d4edda; color: #155724; border-color: #c3e6cb; }
-        .alert.error { background-color: #f8d7da; color: #721c24; border-color: #f5c6cb; }
-        .alert.info { background-color: #d1ecf1; color: #0c5460; border-color: #bee5eb; }
-        .status-present { color: #28a745; font-weight: bold; }
-        .status-late { color: #fd7e14; font-weight: bold; }
-        .status-absent { color: #dc3545; font-weight: bold; }
-        .scan-modal {
-            position: fixed;
-            top:0; left:0; right:0; bottom:0;
-            background: rgba(0,0,0,0.45);
+            padding: 0;
+            color: var(--text-medium);
+            min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
-            z-index: 2222;
+            background-image: linear-gradient(var(--background-overlay), var(--background-overlay)), url('img/cover.jpg');
+            background-size: cover;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+            background-position: center center;
+        }
+
+        .container {
+            max-width: 650px;
+            width: 95%;
+            background-color: var(--container-bg);
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: var(--box-shadow);
+            box-sizing: border-box;
+            text-align: center;
+            position: relative;
+            z-index: 10;
+        }
+
+        .header-container {
+            margin-bottom: 35px;
+        }
+        .header-logo {
+            max-height: 90px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            border-radius: 50%;
+            background-color: #fff;
+            padding: 5px;
+        }
+        h1 {
+            color: var(--primary-blue);
+            font-size: 1.5em;
+            font-weight: 700;
+            margin: 0;
+            line-height: 0.1;
+        }
+        h1 .sub-heading {
+            display: block;
+            font-size: 0.6em;
+            font-weight: 500;
+            color: var(--text-dark);
+            margin-top: 20px;
+        }
+
+        .live-datetime {
+            font-size: 1.0em;
+            font-weight: 500;
+            color: var(--text-dark);
+            margin-bottom: 17px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+        }
+        .live-datetime .date-display {
+            font-size: 0.9em;
+            color: var(--text-medium);
+        }
+        .live-datetime .time-display {
+            font-size: 1.5em;
+            font-weight: 700;
+            color: var(--primary-blue);
+        }
+
+        .system-status {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 25px;
+            font-weight: 600;
+            font-size: 0.9em;
+        }
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+            display: inline-block;
+            box-shadow: 0 0 0 2px rgba(0,0,0,0.1);
+        }
+        .status-dot.active {
+            background-color: var(--success-green);
+        }
+        .status-dot.inactive {
+            background-color: var(--error-red);
+        }
+        .active-hours {
+            font-size: 0.9em;
+            color: var(--text-light);
+            margin-bottom: 10px;
+        }
+
+        .form-group {
+            margin-bottom: 30px;
+        }
+        .inline-form {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        .inline-form input[type="text"] {
+            flex-grow: 1;
+            max-width: 300px;
+            padding: 15px 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            font-size: 0.8em;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.05);
+        }
+        .inline-form input[type="text"]:focus {
+            border-color: var(--primary-blue);
+            box-shadow: 0 0 0 4px var(--light-blue);
+            outline: none;
+        }
+
+        .form-group button {
+            padding: 15px 25px;
+            background-color: var(--primary-blue);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 0.8em;
+            font-weight: 600;
+            transition: background-color 0.2s ease, transform 0.1s ease, box-shadow 0.2s ease;
+            box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+            min-width: 90px;
+        }
+        .form-group button:hover {
+            background-color: var(--dark-blue);
+            box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+        }
+        .form-group button:active {
+            transform: translateY(2px);
+            box-shadow: 0 3px 6px rgba(0,0,0,0.1);
+        }
+
+        .alert {
+            padding: 18px;
+            margin-bottom: 25px;
+            border-radius: 10px;
+            font-size: 0.8em;
+            font-weight: 500;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            line-height: 1.4;
+            border-left: 5px solid;
+            text-align: left;
+        }
+        .alert.success {
+            background-color: #e6ffed;
+            color: var(--success-green);
+            border-color: var(--success-green);
+        }
+        .alert.error {
+            background-color: #ffe6e6;
+            color: var(--error-red);
+            border-color: var(--error-red);
+        }
+        .alert.info {
+            background-color: #e6f7ff;
+            color: var(--info-blue);
+            border-color: var(--info-blue);
+        }
+
+        .status-present { color: var(--success-green); font-weight: 700; }
+        .status-late { color: var(--warning-orange); font-weight: 700; }
+        .status-absent { color: var(--error-red); font-weight: 700; }
+
+        .scan-modal {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
         }
         .scan-modal-content {
             background: #fff;
-            padding: 28px 40px;
-            border-radius: 14px;
-            min-width: 320px;
+            padding: 40px 50px;
+            border-radius: 20px;
+            min-width: 380px;
+            max-width: 90%;
             text-align: left;
-            box-shadow: 0 12px 32px rgba(0,0,0,0.14);
-            animation: appear 0.18s;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            animation: appear 0.3s ease-out;
         }
-        @keyframes appear { from {opacity:0;transform:scale(.96);} to {opacity:1;transform:scale(1);} }
-        .scan-modal-content h3 { margin-top:0; color:#0056b3;}
-        .scan-modal-content p {font-size:1.15em; margin:.8em 0;}
+        @keyframes appear {
+            from { opacity: 0; transform: scale(0.9) translateY(-20px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+        .scan-modal-content h3 {
+            margin-top: 0;
+            color: var(--primary-blue);
+            font-size: 2em;
+            margin-bottom: 25px;
+            border-bottom: 2px solid var(--light-blue);
+            padding-bottom: 15px;
+        }
+        .scan-modal-content p {
+            font-size: 1.2em;
+            margin: 12px 0;
+            color: var(--text-dark);
+            display: flex;
+            justify-content: space-between;
+        }
+        .scan-modal-content p strong {
+            color: var(--text-dark);
+            font-weight: 600;
+            flex-shrink: 0;
+            margin-right: 15px;
+        }
+        .scan-modal-content p span {
+            text-align: right;
+            flex-grow: 1;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                margin: 30px auto;
+                padding: 25px;
+            }
+            .header-logo {
+                max-height: 90px;
+            }
+            h1 {
+                font-size: 2em;
+            }
+            h1 .sub-heading {
+                font-size: 0.7em;
+            }
+            .live-datetime {
+                font-size: 1em;
+            }
+            .live-datetime .time-display {
+                font-size: 1.3em;
+            }
+            .inline-form {
+                flex-direction: column;
+                gap: 10px;
+            }
+            .inline-form input[type="text"],
+            .form-group button {
+                width: 100%;
+                max-width: unset;
+            }
+            .alert {
+                font-size: 0.95em;
+                padding: 15px;
+            }
+            .scan-modal-content {
+                padding: 30px 40px;
+                min-width: unset;
+            }
+            .scan-modal-content h3 {
+                font-size: 1.5em;
+                margin-bottom: 15px;
+            }
+            .scan-modal-content p {
+                font-size: 1.1em;
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            .scan-modal-content p span {
+                text-align: left;
+            }
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header-container">
-            <!-- IMPORTANT: Change 'your_logo.png' to the path of your school's logo file -->
             <img src="img/logo.jpg" alt="School Logo" class="header-logo">
             <h1>
                 San Isidro National High School
@@ -203,8 +489,28 @@ if ($current_time > '17:00:00') {
             </h1>
         </div>
 
+        <div class="live-datetime">
+            <div class="date-display">
+                <?php echo $current_day_name . ', ' . $formatted_date; ?>
+            </div>
+            <div class="time-display" id="currentTime">
+                <?php echo date('h:i:s A'); ?>
+            </div>
+        </div>
+
+        <div class="system-status">
+            <span class="status-dot <?php echo $system_active ? 'active' : 'inactive'; ?>"></span>
+            System Status:
+            <span class="<?php echo $system_active ? 'status-present' : 'status-absent'; ?>">
+                <?php echo $system_active ? ' Active' : ' Inactive'; ?>
+            </span>
+        </div>
+        <div class="active-hours">
+            (Time In: <?php echo $morning_start . ' - ' . $morning_end; ?> | Time Out: <?php echo $afternoon_start . ' - ' . $afternoon_end; ?>)
+        </div>
+
         <?php echo $message; ?>
-        
+
         <div class="form-group">
             <form action="" method="post" class="inline-form">
                 <input type="text" id="rfid_uid" name="rfid_uid" placeholder="Scan RFID Card..." required autofocus autocomplete="off">
@@ -217,9 +523,12 @@ if ($current_time > '17:00:00') {
         <div class="scan-modal" id="scanModal">
             <div class="scan-modal-content">
                 <h3>Student Details</h3>
-                <p><strong>Name:</strong> <?php echo htmlspecialchars($student_info['name']); ?></p>
-                <p><strong>Action:</strong> <?php echo htmlspecialchars($last_action_type); ?></p>
-                <p><strong>Time:</strong> <?php echo htmlspecialchars(date("g:i:s A", strtotime($last_action_time))); ?></p>
+                <p><strong>Name:</strong> <span><?php echo htmlspecialchars($student_info['firstname'] . ' ' . $student_info['lastname']); ?></span></p>
+                <p><strong>LRN:</strong> <span><?php echo htmlspecialchars($student_info['lrn']); ?></span></p>
+                <p><strong>Grade & Section:</strong> <span><?php echo htmlspecialchars($student_info['grade_level'] . ' - ' . ($student_info['section_name'] ?? 'N/A')); ?></span></p>
+                <p><strong>School Year:</strong> <span><?php echo htmlspecialchars($student_info['school_year']); ?></span></p>
+                <p><strong>Action:</strong> <span><?php echo htmlspecialchars($last_action_type); ?></span></p>
+                <p><strong>Time:</strong> <span><?php echo htmlspecialchars(date("g:i:s A", strtotime($last_action_time))); ?></span></p>
                 <?php if ($last_action_type === "Time In"): ?>
                     <p><strong>Status:</strong>
                         <span class="status-<?php echo htmlspecialchars($last_status); ?>">
@@ -230,8 +539,18 @@ if ($current_time > '17:00:00') {
             </div>
         </div>
     <?php endif; ?>
-    
+
     <script>
+        function updateClock() {
+            const now = new Date();
+            const timeOptions = { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true };
+            const timeString = now.toLocaleTimeString('en-US', timeOptions);
+            document.getElementById('currentTime').textContent = timeString;
+        }
+
+        setInterval(updateClock, 1000);
+        updateClock();
+
         function closeModal() {
             var modal = document.getElementById('scanModal');
             if(modal) modal.style.display = 'none';
@@ -239,13 +558,13 @@ if ($current_time > '17:00:00') {
             if(input) { input.focus(); input.value = ''; }
         }
         <?php if ($student_info && $attendance_recorded): ?>
-        setTimeout(closeModal, 2500); // Hide modal after 2.5 seconds
+        setTimeout(closeModal, 2500);
         <?php endif; ?>
         window.onload = function() {
             var rfidInput = document.getElementById('rfid_uid');
             if (rfidInput) {
                 rfidInput.focus();
-                rfidInput.value = ''; // clear for next scan
+                rfidInput.value = '';
             }
         };
     </script>

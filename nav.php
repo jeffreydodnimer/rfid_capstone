@@ -70,6 +70,12 @@ $user = $result->fetch_assoc();
             </div>
         </li>
 
+        <li class="nav-item">
+            <a class="nav-link" href="view_attendance.php">
+                <i class="fa fa-eye"></i>
+                <span>View Attendance</span></a>
+        </li>
+
         <!-- Nav Item - Calendar Menu -->
         <li class="nav-item">
             <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseUtilities"

@@ -27,11 +27,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['link_rfid'])) {
         if ($check_stmt === false) {
             throw new Exception("Error preparing check statement: " . $conn->error);
         }
-        
         $check_stmt->bind_param("s", $lrn);
         $check_stmt->execute();
         $check_result = $check_stmt->get_result();
-        
         if ($check_result->num_rows === 0) {
             throw new Exception("Student with LRN $lrn does not exist.");
         }
@@ -41,35 +39,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['link_rfid'])) {
         $check_rfid_stmt = $conn->prepare("SELECT rfid_number FROM rfid WHERE rfid_number = ?");
         if ($check_rfid_stmt === false) {
             throw new Exception("Error preparing RFID check statement: " . $conn->error);
-        }
-        
+        } 
         $check_rfid_stmt->bind_param("s", $rfid_number);
         $check_rfid_stmt->execute();
         $check_rfid_result = $check_rfid_stmt->get_result();
-        
         if ($check_rfid_result->num_rows > 0) {
             throw new Exception("RFID number already in use.");
         }
         $check_rfid_stmt->close();
 
+        // NEW: Check if LRN is already used in the RFID table
+        $check_lrn_stmt = $conn->prepare("SELECT lrn FROM rfid WHERE lrn = ?");
+        if ($check_lrn_stmt === false) {
+            throw new Exception("Error preparing LRN check statement: " . $conn->error);
+        }
+        $check_lrn_stmt->bind_param("s", $lrn);
+        $check_lrn_stmt->execute();
+        $check_lrn_result = $check_lrn_stmt->get_result();
+        if ($check_lrn_result->num_rows > 0) {
+            throw new Exception("LRN already use.");
+        }
+        $check_lrn_stmt->close();
+
         // Insert the RFID record
         $stmt = $conn->prepare("INSERT INTO rfid (rfid_number, lrn) VALUES (?, ?)");
-        
         if ($stmt === false) {
             throw new Exception("Error preparing insert statement: " . $conn->error);
         }
-        
         $stmt->bind_param("ss", $rfid_number, $lrn);
-        
         if (!$stmt->execute()) {
             throw new Exception($stmt->error);
         }
-        
         $stmt->close();
-        
+
         // Commit the transaction
         $conn->commit();
-        
         header("Location: link_rfid.php?status=linked");
         exit();
     } catch (Exception $e) {
@@ -91,28 +95,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['unlink_rfid'])) {
 
     // Start a transaction
     $conn->begin_transaction();
-
     try {
         $stmt = $conn->prepare("DELETE FROM rfid WHERE rfid_number = ?");
         if ($stmt === false) {
             throw new Exception("Error preparing delete statement: " . $conn->error);
         }
-        
         $stmt->bind_param("s", $rfid_number);
-        
         if (!$stmt->execute()) {
             throw new Exception($stmt->error);
         }
-        
         $stmt->close();
-        
         // Commit the transaction
         $conn->commit();
-        
         header("Location: link_rfid.php?status=unlinked");
         exit();
     } catch (Exception $e) {
-        // Roll back the transaction
         $conn->rollback();
         echo "<script>alert('Error unlinking RFID: " . $e->getMessage() . "'); window.location.href='link_rfid.php';</script>";
         exit();
@@ -129,21 +126,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_rfid'])) {
         echo "<script>alert('Database connection failed for updating RFID.'); window.location.href='link_rfid.php';</script>";
         exit();
     }
-
+    
     // Start a transaction
     $conn->begin_transaction();
-
     try {
         // Check if the LRN exists in students table
         $check_stmt = $conn->prepare("SELECT lrn FROM students WHERE lrn = ?");
         if ($check_stmt === false) {
             throw new Exception("Error preparing check statement: " . $conn->error);
         }
-        
         $check_stmt->bind_param("s", $lrn);
         $check_stmt->execute();
         $check_result = $check_stmt->get_result();
-        
         if ($check_result->num_rows === 0) {
             throw new Exception("Student with LRN $lrn does not exist.");
         }
@@ -155,15 +149,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_rfid'])) {
             if ($check_rfid_stmt === false) {
                 throw new Exception("Error preparing RFID check statement: " . $conn->error);
             }
-            
             $check_rfid_stmt->bind_param("s", $rfid_number);
             $check_rfid_stmt->execute();
             $check_rfid_result = $check_rfid_stmt->get_result();
-            
             if ($check_rfid_result->num_rows > 0) {
                 throw new Exception("New RFID number already in use.");
             }
             $check_rfid_stmt->close();
+        }
+
+        // NEW for update: If the LRN is changed (i.e. different from what is currently linked to the original RFID)
+        // Check if that new LRN is already used.
+        if ($original_rfid != $rfid_number) {  // You can adjust this condition as needed.
+            $check_lrn_stmt = $conn->prepare("SELECT lrn FROM rfid WHERE lrn = ?");
+            if ($check_lrn_stmt === false) {
+                throw new Exception("Error preparing LRN check statement: " . $conn->error);
+            }
+            $check_lrn_stmt->bind_param("s", $lrn);
+            $check_lrn_stmt->execute();
+            $check_lrn_result = $check_lrn_stmt->get_result();
+            if ($check_lrn_result->num_rows > 0) {
+                throw new Exception("LRN already use.");
+            }
+            $check_lrn_stmt->close();
         }
 
         // Update the RFID record
@@ -171,22 +179,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_rfid'])) {
         if ($stmt === false) {
             throw new Exception("Error preparing update statement: " . $conn->error);
         }
-        
         $stmt->bind_param("sss", $rfid_number, $lrn, $original_rfid);
-        
         if (!$stmt->execute()) {
             throw new Exception($stmt->error);
         }
-        
         $stmt->close();
-        
         // Commit the transaction
         $conn->commit();
-        
         header("Location: link_rfid.php?status=updated");
         exit();
     } catch (Exception $e) {
-        // Roll back the transaction
         $conn->rollback();
         echo "<script>alert('Error updating RFID: " . $e->getMessage() . "'); window.location.href='link_rfid.php';</script>";
         exit();
@@ -198,7 +200,6 @@ if (!$conn) {
     die("Database connection failed during RFID list retrieval.");
 }
 
-// Join with students table to get student information along with RFID
 $rfid_result = $conn->query("
     SELECT r.rfid_number, r.lrn, s.lastname, s.firstname, s.middlename 
     FROM rfid r
@@ -207,10 +208,9 @@ $rfid_result = $conn->query("
 "); 
 
 if (!$rfid_result) {
-    die("Error fetching RFID records: " . $conn->error); 
+    die("Error fetching RFID records: " . $conn->error);
 }
 
-// Also get a list of all students for the dropdown menus
 $students_result = $conn->query("SELECT lrn, lastname, firstname, middlename FROM students ORDER BY lastname ASC");
 if (!$students_result) {
     die("Error fetching students: " . $conn->error);
@@ -219,26 +219,18 @@ if (!$students_result) {
 
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="utf-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>RFID Management</title>
-
-    <!-- Custom fonts for this template-->
     <link href="vendor/fontawesome-free/css/all.min.css" rel="stylesheet" type="text/css">
     <link href="https://fonts.googleapis.com/css?family=Nunito:200,300,400,600,700,800,900" rel="stylesheet">
-
-    <!-- Custom styles for this template-->
     <link href="css/sb-admin-2.min.css" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-
-    <!-- jQuery and Bootstrap JS -->
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
-
+    
     <script>
         $(document).ready(function() {
             lucide.createIcons();
@@ -246,7 +238,6 @@ if (!$students_result) {
             // Opens the Edit Modal and fills the fields with RFID data
             window.openEditModal = function(rfid) {
                 $('#editModal').modal('show');
-                // Use original_rfid as the identifier for the edit operation
                 $('#original_rfid').val(rfid.rfid_number);
                 $('#edit_rfid_number').val(rfid.rfid_number);
                 $('#edit_lrn').val(rfid.lrn);
@@ -264,7 +255,6 @@ if (!$students_result) {
                 } else if (status === "updated") {
                     message = "RFID updated successfully!";
                 }
-
                 if (message) {
                     alert(message);
                     window.history.replaceState({}, document.title, "link_rfid.php");
@@ -273,9 +263,7 @@ if (!$students_result) {
         });
     </script>
 </head>
-
 <body id="page-top">
-
     <?php include 'nav.php'; ?>
 
     <div id="wrapper">
