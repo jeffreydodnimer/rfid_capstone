@@ -10,14 +10,11 @@ ini_set('display_errors', 0); // Hide errors from output to prevent interfering 
 require('fpdf/fpdf.php'); // Ensure fpdf.php is in a 'fpdf' subdirectory or adjust path
 
 // --- Database Configuration ---
-$host = 'localhost';
-$db_name = 'rfid_attendance_db';
-$username = 'root';
-$password = '';
+include 'conn.php';
 
 try {
     // Connect to the database
-    $pdo = new PDO("mysql:host=$host;dbname=$db_name;charset=utf8mb4", $username, $password);
+    $pdo = new PDO("mysql:host=$host;dbname=$db;charset=utf8mb4", $user, $pass);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
@@ -26,18 +23,57 @@ try {
 }
 
 // --- Input Validation and Sanitization ---
-// Example Usage: generate_sf2.php?section=Grade7-Daisy&month=2024-03&school_id=123456&school_name=MySampleSchool&grade_level=Grade%207&advisor_name=John%20Doe&school_head_name=Jane%20Smith
-$section_name = isset($_GET['section']) ? htmlspecialchars(trim($_GET['section'])) : '';
+// Example Usage: generate_sf2.php?section_id=1&month=2024-03&school_year=2024-2025&school_id=123456&school_name=MySampleSchool&advisor_name=John%20Doe&school_head_name=Jane%20Smith
+$section_id = isset($_GET['section_id']) ? (int)$_GET['section_id'] : 0;
 $month_year_str = isset($_GET['month']) ? htmlspecialchars(trim($_GET['month'])) : ''; // Format: YYYY-MM
+$school_year = isset($_GET['school_year']) ? htmlspecialchars(trim($_GET['school_year'])) : ''; // Format: YYYY-YYYY
 $school_id = isset($_GET['school_id']) ? htmlspecialchars(trim($_GET['school_id'])) : '987654'; // Default/Example
 $school_name = isset($_GET['school_name']) ? htmlspecialchars(trim($_GET['school_name'])) : 'SAMPLE INTEGRATED SCHOOL'; // Default/Example
-$grade_level = isset($_GET['grade_level']) ? htmlspecialchars(trim($_GET['grade_level'])) : 'Grade 7'; // Default/Example
 $advisor_name = isset($_GET['advisor_name']) ? htmlspecialchars(trim($_GET['advisor_name'])) : 'LOVELY BUAG CHIANG'; // Default/Example Name from image
 $school_head_name = isset($_GET['school_head_name']) ? htmlspecialchars(trim($_GET['school_head_name'])) : 'ELENITA BUSA BELARE'; // Default/Example Name from image
 
-if (empty($section_name) || empty($month_year_str) || !preg_match('/^\d{4}-\d{2}$/', $month_year_str)) {
+// Auto-derive school year if not provided
+if (empty($school_year) && !empty($month_year_str)) {
+    $year = (int)substr($month_year_str, 0, 4);
+    $month = (int)substr($month_year_str, 5, 2);
+    $school_year_start = ($month >= 6) ? $year : $year - 1;
+    $school_year_end = $school_year_start + 1;
+    $school_year = "{$school_year_start}-{$school_year_end}";
+}
+
+if (empty($section_id) || empty($month_year_str) || !preg_match('/^\d{4}-\d{2}$/', $month_year_str) || empty($school_year)) {
     ob_end_clean();
-    die("Error: Please provide a valid 'section' and 'month' (format YYYY-MM).");
+    
+    // Provide helpful error message with available sections
+    $current_month = date('Y-m');
+    $current_year = date('Y');
+    $default_school_year = ($current_month >= '06') ? $current_year . '-' . ($current_year + 1) : ($current_year - 1) . '-' . $current_year;
+    
+    $error_message = "Error: Please provide valid parameters.\n\n";
+    $error_message .= "Required parameters:\n";
+    $error_message .= "- section_id: ID of the section\n";
+    $error_message .= "- month: format YYYY-MM\n";
+    $error_message .= "- school_year: format YYYY-YYYY (optional, will be auto-derived if not provided)\n\n";
+    $error_message .= "Example URL:\n";
+    $error_message .= "generate_sf2.php?section_id=1&month=$current_month&school_year=$default_school_year\n\n";
+    
+    // Try to show available sections if possible
+    try {
+        $stmt_available = $pdo->prepare("SELECT section_id, section_name, grade_level FROM sections LIMIT 5");
+        $stmt_available->execute();
+        $available_sections = $stmt_available->fetchAll();
+        
+        if (!empty($available_sections)) {
+            $error_message .= "Available sections in your database:\n";
+            foreach ($available_sections as $section) {
+                $error_message .= "- ID: {$section['section_id']} - {$section['section_name']} ({$section['grade_level']})\n";
+            }
+        }
+    } catch (Exception $e) {
+        $error_message .= "Could not retrieve available sections from database.\n";
+    }
+    
+    die(nl2br($error_message));
 }
 
 $year = (int)substr($month_year_str, 0, 4);
@@ -49,74 +85,122 @@ if (!checkdate($month, 1, $year)) {
     die("Error: Invalid month or year provided.");
 }
 
-// Derive school year from the month
-// Assuming school year typically starts in June (month 6)
-$school_year_start = ($month >= 6) ? $year : $year - 1;
-$school_year_end = $school_year_start + 1;
-$display_school_year = "{$school_year_start} - {$school_year_end}";
-
 $month_name = date('F', mktime(0, 0, 0, $month, 1, $year));
 $days_in_month = cal_days_in_month(CAL_GREGORIAN, $month, $year);
 
 // --- Data Fetching and Processing ---
 
-// 1. Get all students from the specified section, including gender
-$stmt_students = $pdo->prepare("SELECT rfid_uid, name, gender FROM students WHERE section = :section ORDER BY gender, name ASC");
-$stmt_students->execute(['section' => $section_name]);
-$all_students_raw = $stmt_students->fetchAll();
+// 1. Get section information
+$stmt_section = $pdo->prepare("SELECT section_name, grade_level FROM sections WHERE section_id = :section_id");
+$stmt_section->execute(['section_id' => $section_id]);
+$section_info = $stmt_section->fetch();
+
+if (!$section_info) {
+    ob_end_clean();
+    die("Error: Section with ID '$section_id' not found.");
+}
+
+$section_name = $section_info['section_name'];
+$grade_level = $section_info['grade_level'];
+
+// 2. Get all students from the specified section for the given school year
+$stmt_students = $pdo->prepare("
+    SELECT 
+        s.lrn, 
+        CONCAT(
+            COALESCE(s.lastname, ''), 
+            CASE 
+                WHEN COALESCE(s.firstname, '') != '' THEN CONCAT(', ', s.firstname)
+                ELSE ''
+            END,
+            CASE 
+                WHEN COALESCE(s.middlename, '') != '' THEN CONCAT(' ', s.middlename)
+                ELSE ''
+            END,
+            CASE 
+                WHEN COALESCE(s.suffix, '') != '' THEN CONCAT(' ', s.suffix)
+                ELSE ''
+            END
+        ) as name,
+        s.birthdate,
+        s.age,
+        e.enrollment_id
+    FROM students s
+    INNER JOIN enrollments e ON s.lrn = e.lrn
+    WHERE e.section_id = :section_id AND e.school_year = :school_year
+    ORDER BY s.lastname, s.firstname, s.middlename ASC
+");
+
+try {
+    $stmt_students->execute(['section_id' => $section_id, 'school_year' => $school_year]);
+    $all_students_raw = $stmt_students->fetchAll();
+} catch (Exception $e) {
+    ob_end_clean();
+    die("Database Error: " . $e->getMessage() . "\n\nNote: Please ensure the enrollments table exists and is properly linked.");
+}
 
 if (empty($all_students_raw)) {
     ob_end_clean();
-    die("Error: No students found for section '$section_name'.");
+    die("Error: No students found for section ID '$section_id' (Section: $section_name) in school year '$school_year'.");
 }
 
-// Separate students by gender and count enrollment based on a simplified model
+// Since we don't have gender data, we'll assign students to groups
+// For a more accurate system, consider adding a gender field to the students table
+$total_students = count($all_students_raw);
 $male_students = [];
 $female_students = [];
 
-// These variables represent the "Enrollment as of 1st Friday of the school year" in the summary table.
-// Here we set the static values to match the screenshot
-$enrolled_male_count_sy_start = 17;
-$enrolled_female_count_sy_start = 12;
-$total_enrolled_sy_start = $enrolled_male_count_sy_start + $enrolled_female_count_sy_start;
-
-foreach ($all_students_raw as $student) {
-    if (!isset($student['gender']) || empty(trim($student['gender']))) {
-        $student['gender'] = 'N/A'; // Default if gender is truly unknown/missing
-    }
-
-    if (strtolower($student['gender']) === 'male') {
+// Simple alternating assignment - you should modify this logic based on your needs
+// or add a gender field to your students table
+foreach ($all_students_raw as $index => $student) {
+    if ($index % 2 == 0) {
+        $student['gender'] = 'male';
         $male_students[] = $student;
-    } else { // Treat any other value, including 'N/A', as female for this report's counts
+    } else {
+        $student['gender'] = 'female';
         $female_students[] = $student;
     }
 }
+
+// Set enrollment counts based on actual student counts
+$enrolled_male_count_sy_start = count($male_students);
+$enrolled_female_count_sy_start = count($female_students);
+$total_enrolled_sy_start = $enrolled_male_count_sy_start + $enrolled_female_count_sy_start;
 
 // "Registered Learners as of end of month" is the same as enrollment for this example
 $registered_male_count_end_month = $enrolled_male_count_sy_start;
 $registered_female_count_end_month = $enrolled_female_count_sy_start;
 $total_registered_at_end_month = $total_enrolled_sy_start;
 
-// 2. Get all attendance records for the section for the given month
+// 3. Get all attendance records for the section for the given month and school year
 $stmt_attendance = $pdo->prepare("
-    SELECT s.rfid_uid, a.time_in
+    SELECT s.lrn, a.date, a.time_in
     FROM attendance a
-    JOIN students s ON a.rfid_uid = s.rfid_uid
-    WHERE s.section = :section AND DATE_FORMAT(a.time_in, '%Y-%m') = :month_year
+    INNER JOIN students s ON a.lrn = s.lrn
+    INNER JOIN enrollments e ON a.enrollment_id = e.enrollment_id
+    WHERE e.section_id = :section_id 
+    AND e.school_year = :school_year
+    AND DATE_FORMAT(a.date, '%Y-%m') = :month_year
+    AND a.status = 'present'
 ");
-$stmt_attendance->execute(['section' => $section_name, 'month_year' => $month_year_str]);
+
+$stmt_attendance->execute([
+    'section_id' => $section_id, 
+    'school_year' => $school_year,
+    'month_year' => $month_year_str
+]);
 $records = $stmt_attendance->fetchAll();
 
-// 3. Process records into a matrix: [rfid_uid][day] => true (for presence)
+// 4. Process records into a matrix: [lrn][day] => true (for presence)
 $attendance_matrix = [];
 foreach ($records as $record) {
-    $record_day = (int)date('d', strtotime($record['time_in']));
-    $record_month_val = (int)date('m', strtotime($record['time_in']));
-    $record_year_val = (int)date('Y', strtotime($record['time_in']));
+    $record_day = (int)date('d', strtotime($record['date']));
+    $record_month_val = (int)date('m', strtotime($record['date']));
+    $record_year_val = (int)date('Y', strtotime($record['date']));
 
     // Check if the record is for the actual month and year being reported
     if ($record_month_val == $month && $record_year_val == $year) {
-        $attendance_matrix[$record['rfid_uid']][$record_day] = true; // Mark as present
+        $attendance_matrix[$record['lrn']][$record_day] = true; // Mark as present
     }
 }
 
@@ -201,13 +285,12 @@ class PDF extends FPDF
 }
 
 // Helper function to generate the attendance table for a specific gender
-// MODIFIED: Added $print_header parameter to optionally suppress the header
 function generateAttendanceTable($pdf, $students, $attendance_matrix, $school_days_list, $year, $month, $gender_label, $print_header = true) {
     // Standard cell width for each day, adjusted for A3 paper
     $day_cell_width = 8; // Increased width slightly as there are fewer columns
     $name_col_width = 70; // Width for "LEARNER'S NAME" column
 
-    // MODIFIED: Only print header if $print_header is true
+    // Only print header if $print_header is true
     if ($print_header) {
         // --- HEADER ROW 1 ---
         $pdf->SetFont('Arial', 'B', 6.5); // Smaller font for the long name header
@@ -267,7 +350,6 @@ function generateAttendanceTable($pdf, $students, $attendance_matrix, $school_da
         $pdf->Cell($total_days_width + $total_summary_width + $total_remarks_width, 5, '', 1, 1, 'C');
     }
 
-
     // --- TABLE BODY ---
     $pdf->SetFont('Arial', '', 8);
     $daily_absences = array_fill(1, 31, 0); // Stores total absentees per day for this gender (max 31 days)
@@ -287,7 +369,7 @@ function generateAttendanceTable($pdf, $students, $attendance_matrix, $school_da
 
         // Loop only through school days
         foreach ($school_days_list as $day) {
-            $is_present = isset($attendance_matrix[$student['rfid_uid']][$day]);
+            $is_present = isset($attendance_matrix[$student['lrn']][$day]);
             
             if ($is_present) {
                 $pdf->Cell($day_cell_width, 5, '', 1, 0, 'C'); // Blank (Present)
@@ -307,7 +389,7 @@ function generateAttendanceTable($pdf, $students, $attendance_matrix, $school_da
         // Remarks column with proper alignment
         $pdf->Cell(45, 5, '', 1, 1, 'L'); // Remarks
 
-        $student_attendance_summary[$student['rfid_uid']] = [
+        $student_attendance_summary[$student['lrn']] = [
             'absent' => $total_absences,
             'tardy' => $total_tardies
         ];
@@ -340,7 +422,7 @@ try {
     $pdf = new PDF('L', 'mm', 'A3'); // A3 for more horizontal space
     $pdf->AliasNbPages();
     $pdf->SetAutoPageBreak(true, 15); // Adjust auto page break margin
-    $pdf->setHeaderData($school_id, $school_name, $display_school_year, $month_name, $grade_level, $section_name);
+    $pdf->setHeaderData($school_id, $school_name, $school_year, $month_name, $grade_level, $section_name);
     $pdf->AddPage();
 
     // --- Calculate school days for the month, excluding weekends ---
@@ -357,8 +439,7 @@ try {
     // Generate Male table with the full header
     $male_data = generateAttendanceTable($pdf, $male_students, $attendance_matrix, $school_days_in_month_list, $year, $month, 'MALE');
     
-    // MODIFIED: Generate Female table WITHOUT the header, and remove the space between them.
-    // A gender sub-header is still printed for clarity.
+    // Generate Female table WITHOUT the header, and remove the space between them.
     $female_data = generateAttendanceTable($pdf, $female_students, $attendance_matrix, $school_days_in_month_list, $year, $month, 'FEMALE', false);
 
     // --- Combined Daily Totals ---
@@ -383,7 +464,7 @@ try {
     $pdf->Ln(5);
 
     // --- Summary Box Calculations ---
-    // Total learners present for the month (sum of daily presents for all school school_days_in_month_list)
+    // Total learners present for the month (sum of daily presents for all school days)
     $total_present_males_sum_daily = array_sum($male_data['daily_presents']);
     $total_present_females_sum_daily = array_sum($female_data['daily_presents']);
     $total_daily_attendance_all = $total_present_males_sum_daily + $total_present_females_sum_daily;
@@ -471,7 +552,7 @@ try {
     // Individual-Related Factors
     $pdf->SetX($reasons_col_start_x); $pdf->Cell($col2_width, 3.5, 'b. Individual-Related Factors', 0, 1, 'L');
     $pdf->SetX($reasons_col_start_x); $pdf->Cell($col2_width, 3.5, '   1. Illness', 0, 1, 'L');
-    $pdf->SetX($reasons_col_start_x); $pdf->Cell($col2_width, 3.5, '   2. Disability', 0, 1, 'L'); // Changed from "Damage" to match image
+    $pdf->SetX($reasons_col_start_x); $pdf->Cell($col2_width, 3.5, '   2. Disability', 0, 1, 'L');
     $pdf->SetX($reasons_col_start_x); $pdf->Cell($col2_width, 3.5, '   3. Death', 0, 1, 'L');
     $pdf->SetX($reasons_col_start_x); $pdf->Cell($col2_width, 3.5, '   4. Drug Abuse', 0, 1, 'L');
     $pdf->SetX($reasons_col_start_x); $pdf->Cell($col2_width, 3.5, '   5. Poor academic performance', 0, 1, 'L');
@@ -537,8 +618,7 @@ try {
         $pdf->Cell($col_width, 5, $total_val, 1, 1, 'C');
     }
 
-    // Data rows to match the screenshot
-    // Use specific values to match the screenshot exactly
+    // Data rows
     addSummaryRow(
         $pdf, $summary_col_start_x,
         '* Enrollment as of (1st Friday of the SY)',
@@ -548,13 +628,13 @@ try {
         $summary_label_width, $summary_data_col_width
     );
 
-    // Late Enrollment row - static data to match screenshot
+    // Late Enrollment row
     addSummaryRow(
         $pdf, $summary_col_start_x,
         'Late enrollment during the month',
         '0',
-        '1',
-        '1',
+        '0',
+        '0',
         $summary_label_width, $summary_data_col_width
     );
 
@@ -568,7 +648,7 @@ try {
         $summary_label_width, $summary_data_col_width
     );
 
-    // Percentage of Enrollment row - fixed values showing 100%
+    // Percentage of Enrollment row
     addSummaryRow(
         $pdf, $summary_col_start_x,
         'Percentage of Enrollment as of end of month',

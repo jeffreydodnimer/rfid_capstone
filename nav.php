@@ -1,11 +1,10 @@
 <?php
+include 'conn.php';
 
 if (!isset($_SESSION['email'])) {
     header('Location: admin_login.php');
     exit();
 }
-
-include 'conn.php';
 
 $email = $_SESSION['email'];
 $sql = "SELECT * FROM users WHERE email = ?";
@@ -17,7 +16,20 @@ $result = $stmt->get_result();
 $user = $result->fetch_assoc();
 ?>
 
-
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <!-- Custom CSS (adjust path as needed) -->
+    <link href="css/sb-admin-2.min.css" rel="stylesheet">
+</head>
+<body id="page-top">
 <div id="wrapper">
 
     <!-- Sidebar -->
@@ -48,86 +60,88 @@ $user = $result->fetch_assoc();
 
         <!-- Heading -->
         <div class="sidebar-heading">
-            Others
+            Student Management
         </div>
 
         <!-- Nav Item - Pages Collapse Menu -->
+        <li class="nav-item" >
+            <a class="nav-link" href="students_list.php">
+                <i class="fa fa-user-graduate" ></i>
+                <span >Add Student</span></a>
+        </li> 
+
         <li class="nav-item">
-            <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseTwo"
-                aria-expanded="true" aria-controls="collapseTwo">
-                <i class="fas fa-fw fa-cog"></i>
-                <span>Student Management</span>
+            <a class="nav-link" href="guardian.php">
+                <i class="fa fa-house-user"></i>
+                <span>Guardian Of Students</span>
             </a>
-            <div id="collapseTwo" class="collapse" aria-labelledby="headingTwo" data-parent="#accordionSidebar">
-                <div class="bg-white py-2 collapse-inner rounded">
-                    <a class="collapse-item" href="students_list.php">Add Student</a>
-                    <a class="collapse-item" href="add_adviser.php">Add Teachers</a>
-                    <a class="collapse-item" href="section_student.php">Add Section</a>
-                    <a class="collapse-item" href="enrollment.php">Add Enrollment</a>
-                    <a class="collapse-item" href="guardian.php">Add Guardian</a>
-                    <a class="collapse-item" href="link_rfid.php">Add RFID</a>
-                </div>
-            </div>
         </li>
 
-        <li class="nav-item">
-            <a class="nav-link" href="view_attendance.php">
-                <i class="fa fa-eye"></i>
-                <span>View Attendance</span></a>
+        <li class="nav-item" >
+            <a class="nav-link" href="enrollment.php">
+                <i class="fa fa-pen-alt" ></i>
+                <span >Enroll Student</span></a>
         </li>
 
-        <!-- Nav Item - Calendar Menu -->
-        <li class="nav-item">
-            <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseUtilities"
-                aria-expanded="true" aria-controls="collapseUtilities">
-                <i class="fas fa-fw fa-calendar"></i>
-                     <span>Calendar</span>
-                </a>
-            <div id="collapseUtilities" class="collapse" aria-labelledby="headingUtilities"
-                data-parent="#accordionSidebar">
-                <div class="bg-white py-2 collapse-inner rounded">
-                    <a class="collapse-item" href="school_calendar.php">School Calendar</a>
-                    
-                </div>
-            </div>
+        <li class="nav-item" >
+            <a class="nav-link" href="link_rfid.php">
+                <i class="fa fa-credit-card" ></i>
+                <span >Link RFID</span></a>
         </li>
-
-        <!-- Divider -->
         <hr class="sidebar-divider">
 
         <!-- Heading -->
         <div class="sidebar-heading">
-            Addons
+            Teachers Management
         </div>
 
-        <!-- Nav Item - Pages Collapse Menu -->
-        <li class="nav-item">
-            <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapsePages"
-                aria-expanded="true" aria-controls="collapsePages">
-                <i class="fas fa-fw fa-folder"></i>
-                <span>User Management</span>
-            </a>
-            <div id="collapsePages" class="collapse" aria-labelledby="headingPages" data-parent="#accordionSidebar">
-                <div class="bg-white py-2 collapse-inner rounded">
-                    <a class="collapse-item" href="login.php">User Accounts</a>
-                    <a class="collapse-item" href="register.php">User Roles & Permissions</a>
-                    <div class="collapse-divider"></div>
-                </div>
+        <li class="nav-item" >
+            <a class="nav-link" href="add_adviser.php">
+                <i class="fa fa-chalkboard-teacher" ></i>
+                <span >Add Adviser</span></a>
+        </li>
+        
+        <li class="nav-item" >
+            <a class="nav-link" href="section_student.php">
+                <i class="fa fa-book-reader" ></i>
+                <span >Assign Adviser</span></a>
+        </li>
+
+         <hr class="sidebar-divider">
+
+         <div class="sidebar-heading">
+                Socials
             </div>
-        </li>
 
-        <!-- Nav Item - Charts -->
-        <li class="nav-item">
-            <a class="nav-link" href="report.php">
-                <i class="fas fa-fw fa-chart-area"></i>
-                <span>Reports</span></a>
-        </li>
+            <!-- Social Media Links - UPDATED TO FACEBOOK, YOUTUBE, GOOGLE -->
+            <div class="social-links">
+                <li class="nav-item">
+                    <a class="nav-link facebook-link" href="https://web.facebook.com/DepEdTayoSINHS301394.official/?_rdc=1&_rdr#" target="_blank">
+                        <i class="fab fa-facebook-f"></i>
+                        <span>Facebook</span>
+                    </a>
+                </li>
 
-        <!-- Sidebar Toggler (Sidebar) -->
-        <div class="d-flex justify-content-center align-items-center mt-3 mb-3">
-            <button class="rounded-circle border-0" id="sidebarToggle"></button>
-        </div>
+                <li class="nav-item">
+                    <a class="nav-link youtube-link" href="https://www.youtube.com/channel/UCDw3mhzSTm_NFk_2dFbhBKg" target="_blank">
+                        <i class="fab fa-youtube"></i>
+                        <span>YouTube</span>
+                    </a>
+                </li>
 
+                <li class="nav-item">
+                    <a class="nav-link google-link" href="https://ph.search.yahoo.com/search;_ylt=Awrx.tEep2doLwIAgj6zRwx.;_ylc=X1MDMjExNDczNDAwMwRfcgMyBGZyA21j
+                    YWZlZQRmcjIDc2ItdG9wBGdwcmlkAwRuX3JzbHQDMARuX3N1Z2cDMARvcmlnaW4DcGguc2VhcmNoLnlhaG9vLmNvbQRwb3MDMARwcXN0cgMEcHFzdHJsAzAEcXN0cmwDNTEEcXVlcnkD
+                    c2FuJTIwaXNpZHJvJTIwbmF0aW9uYWwlMjBoaWdoJTIwc2Nob29sJTIwcGFkcmUlMjBidXJnb3MlMjBxdWV6b24EdF9zdG1wAzE3NTE2MjM0NzM-?p=san+isidro+national+high+
+                    school+padre+burgos+quezon&fr=mcafee&type=E211PH1589G0&fr2=sb-top" target="_blank">
+                        <i class="fab fa-google"></i>
+                        <span>Google</span>
+                    </a>
+                </li>
+            </div>
+
+            <!-- Divider -->
+            <hr class="sidebar-divider d-none d-md-block">
     </ul>
     <!-- End of Sidebar -->
 
@@ -139,8 +153,6 @@ $user = $result->fetch_assoc();
 
             <!-- Topbar -->
             <nav class="navbar navbar-expand navbar-light bg-white topbar mb-4 static-top shadow">
-
-                <!-- Sidebar Toggle (Topbar) -->
                 <button id="sidebarToggleTop" class="btn btn-link d-md-none rounded-circle mr-3">
                     <i class="fa fa-bars"></i>
                 </button>
@@ -174,28 +186,17 @@ $user = $result->fetch_assoc();
 
                     <!-- Nav Item - Alerts -->
                     <li class="nav-item dropdown no-arrow mx-1">
-                        <a class="nav-link dropdown-toggle" href="#" id="alertsDropdown" role="button"
-                            data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-                            <i class="fas fa-bell fa-fw"></i>
-                            <!-- Counter - Alerts -->
-                            <span class="badge badge-danger badge-counter">3+</span>
-                        </a>
                         <!-- Dropdown - Alerts -->
                         <div class="dropdown-list dropdown-menu dropdown-menu-right shadow animated--grow-in"
                             aria-labelledby="alertsDropdown">
-                            <h6 class="dropdown-header">
-                                Alerts Center
-                            </h6>
+                        
                             <a class="dropdown-item d-flex align-items-center" href="#">
                                 <div class="mr-3">
                                     <div class="icon-circle bg-primary">
                                         <i class="fas fa-file-alt text-white"></i>
                                     </div>
                                 </div>
-                                <div>
-                                    <div class="small text-gray-500">December 12, 2019</div>
-                                    <span class="font-weight-bold">A new monthly report is ready to download!</span>
-                                </div>
+                             
                             </a>
                             <a class="dropdown-item d-flex align-items-center" href="#">
                                 <div class="mr-3">
@@ -203,10 +204,7 @@ $user = $result->fetch_assoc();
                                         <i class="fas fa-donate text-white"></i>
                                     </div>
                                 </div>
-                                <div>
-                                    <div class="small text-gray-500">December 7, 2019</div>
-                                    $290.29 has been deposited into your account!
-                                </div>
+                               
                             </a>
                             <a class="dropdown-item d-flex align-items-center" href="#">
                                 <div class="mr-3">
@@ -214,23 +212,12 @@ $user = $result->fetch_assoc();
                                         <i class="fas fa-exclamation-triangle text-white"></i>
                                     </div>
                                 </div>
-                                <div>
-                                    <div class="small text-gray-500">December 2, 2019</div>
-                                    Spending Alert: We've noticed unusually high spending for your account.
-                                </div>
                             </a>
-                            <a class="dropdown-item text-center small text-gray-500" href="#">Show All Alerts</a>
                         </div>
                     </li>
 
                     <!-- Nav Item - Messages -->
                     <li class="nav-item dropdown no-arrow mx-1">
-                        <a class="nav-link dropdown-toggle" href="#" id="messagesDropdown" role="button"
-                            data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-                            <i class="fas fa-envelope fa-fw"></i>
-                            <!-- Counter - Messages -->
-                            <span class="badge badge-danger badge-counter">7</span>
-                        </a>
                         <!-- Dropdown - Messages -->
                         <div class="dropdown-list dropdown-menu dropdown-menu-right shadow animated--grow-in"
                             aria-labelledby="messagesDropdown">
@@ -243,11 +230,7 @@ $user = $result->fetch_assoc();
                                         alt="...">
                                     <div class="status-indicator bg-success"></div>
                                 </div>
-                                <div class="font-weight-bold">
-                                    <div class="text-truncate">Hi there! I am wondering if you can help me with a
-                                        problem I've been having.</div>
-                                    <div class="small text-gray-500">Emily Fowler · 58m</div>
-                                </div>
+                                
                             </a>
                             <a class="dropdown-item d-flex align-items-center" href="#">
                                 <div class="dropdown-list-image mr-3">
@@ -255,11 +238,7 @@ $user = $result->fetch_assoc();
                                         alt="...">
                                     <div class="status-indicator"></div>
                                 </div>
-                                <div>
-                                    <div class="text-truncate">I have the photos that you ordered last month, how
-                                        would you like them sent to you?</div>
-                                    <div class="small text-gray-500">Jae Chun · 1d</div>
-                                </div>
+                              
                             </a>
                             <a class="dropdown-item d-flex align-items-center" href="#">
                                 <div class="dropdown-list-image mr-3">
@@ -267,11 +246,7 @@ $user = $result->fetch_assoc();
                                         alt="...">
                                     <div class="status-indicator bg-warning"></div>
                                 </div>
-                                <div>
-                                    <div class="text-truncate">Last month's report looks great, I am very happy with
-                                        the progress so far, keep up the good work!</div>
-                                    <div class="small text-gray-500">Morgan Alvarez · 2d</div>
-                                </div>
+                             
                             </a>
                             <a class="dropdown-item d-flex align-items-center" href="#">
                                 <div class="dropdown-list-image mr-3">
@@ -279,13 +254,8 @@ $user = $result->fetch_assoc();
                                         alt="...">
                                     <div class="status-indicator bg-success"></div>
                                 </div>
-                                <div>
-                                    <div class="text-truncate">Am I a good boy? The reason I ask is because someone
-                                        told me that people say this to all dogs, even if they aren't good...</div>
-                                    <div class="small text-gray-500">Chicken the Dog · 2w</div>
-                                </div>
+                               
                             </a>
-                            <a class="dropdown-item text-center small text-gray-500" href="#">Read More Messages</a>
                         </div>
                     </li>
 
@@ -315,5 +285,5 @@ $user = $result->fetch_assoc();
                     </li>
 
                 </ul>
-
             </nav>
+            </body>

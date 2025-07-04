@@ -271,7 +271,7 @@ if (!$students_result) {
             <div id="content">
                 <div class="container-fluid">
                     <div class="d-flex justify-content-between align-items-center mb-4">
-                        <h2 class="h3 mb-0 text-gray-800">RFID MANAGEMENT</h2>
+                        <h2 class="h3 mb-0 text-gray-800">RFID DASHBOARD</h2>
                         <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addRfidModal"
                             style="box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);">Link New RFID</button>
                     </div>

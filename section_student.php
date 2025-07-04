@@ -146,7 +146,7 @@ $sections_result = $conn->query($sections_query);
             <div id="content">
                 <div class="container-fluid mt-4">
                     <div class="d-flex justify-content-between align-items-center mb-4">
-                        <h2 class="h3 mb-0 text-gray-800">MANAGE SECTIONS</h2>
+                        <h2 class="h3 mb-0 text-gray-800">ASSIGNING ADVISER DASHBOARD</h2>
                         <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addSectionModal">Add New Section</button>
                     </div>
 

@@ -20,6 +20,7 @@ $stmt = $pdo->query("SELECT a.*, s.firstname, s.lastname FROM attendance a INNER
 $attendanceRecords = $stmt->fetchAll();
 
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -28,10 +29,49 @@ $attendanceRecords = $stmt->fetchAll();
     <title>Attendance Records</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        /* Styles omitted for brevity... */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f4f4f9;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f2f2f2;
+            color: #333;
+            font-weight: 600;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        tr:hover {
+            background-color: #f1f1f1;
+        }
     </style>
 </head>
 <body>
+    <?php include 'nav.php'; ?>
     <div class="container">
         <h1>Attendance Records</h1>
         <table>

@@ -332,7 +332,7 @@ if (!$enrollments_result) {
         <div class="container-fluid">
 
           <div class="d-flex justify-content-between align-items-center mb-4">
-            <h2 class="h3 mb-0 text-gray-800">ENROLL STUDENT</h2>
+            <h2 class="h3 mb-0 text-gray-800">ENROLLMENT DASHBOARD</h2>
             <button
               class="btn btn-primary"
               data-bs-toggle="modal"
@@ -358,7 +358,6 @@ if (!$enrollments_result) {
 
           <!-- Enrollment Table -->
           <div class="bg-gray-100 rounded-xl p-5 shadow-md mb-5">
-            <h4 class="mb-4 text-gray-700">Enrolled Students</h4>
             <div class="overflow-x-auto">
               <table class="w-full table-auto border border-gray-300 text-sm text-center">
                 <thead class="bg-gray-200 font-semibold">

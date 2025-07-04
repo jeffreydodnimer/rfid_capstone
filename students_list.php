@@ -1,5 +1,5 @@
 <?php
-session_start();  // Must be at the VERY TOP
+session_start();
 if (!isset($_SESSION['email'])) {
     header('Location: admin_login.php');
     exit();
@@ -9,13 +9,12 @@ include 'conn.php';
 
 // Handle Add Student
 if (isset($_POST['add_student'])) {
-    // Cast numeric values for LRN and Age
-    $lrn       = (int) htmlspecialchars($_POST['lrn']);
-    $lastname  = htmlspecialchars($_POST['lastname']);
+    $lrn = (int) htmlspecialchars($_POST['lrn']);
+    $lastname = htmlspecialchars($_POST['lastname']);
     $firstname = htmlspecialchars($_POST['firstname']);
-    $middlename= htmlspecialchars($_POST['middlename']);
-    $suffix    = htmlspecialchars($_POST['suffix']);
-    $age       = (int) htmlspecialchars($_POST['age']);
+    $middlename = htmlspecialchars($_POST['middlename']);
+    $suffix = htmlspecialchars($_POST['suffix']);
+    $age = (int) htmlspecialchars($_POST['age']);
     $birthdate = htmlspecialchars($_POST['birthdate']);
 
     if (!$conn) {
@@ -29,7 +28,6 @@ if (isset($_POST['add_student'])) {
         exit();
     }
 
-    // CORRECTED: The type for birthdate is 's' (string), not 'i' (integer).
     $stmt->bind_param("issssis", $lrn, $lastname, $firstname, $middlename, $suffix, $age, $birthdate);
 
     if ($stmt->execute()) {
@@ -43,7 +41,6 @@ if (isset($_POST['add_student'])) {
 
 // Handle Delete Student
 if (isset($_POST['delete_student'])) {
-    // Cast student_lrn to int
     $lrn = (int) $_POST['student_lrn'];
 
     if (!$conn) {
@@ -54,8 +51,6 @@ if (isset($_POST['delete_student'])) {
     $conn->begin_transaction();
 
     try {
-        // To prevent foreign key errors, set ON DELETE CASCADE in your database
-        // or delete from child tables (enrollments, rfid) here first.
         $stmt = $conn->prepare("DELETE FROM students WHERE lrn = ?");
         $stmt->bind_param("i", $lrn);
         if (!$stmt->execute()) {
@@ -74,16 +69,14 @@ if (isset($_POST['delete_student'])) {
 
 // Handle Edit Student
 if (isset($_POST['edit_student'])) {
-    // The hidden field "edit_id" holds the original LRN.
     $original_lrn = (int) $_POST['edit_id'];
-    // Get new values; if the LRN is changed, the new value will be used.
-    $lrn          = (int) htmlspecialchars($_POST['edit_lrn'], ENT_QUOTES, 'UTF-8');
-    $lastname     = htmlspecialchars($_POST['edit_lastname'], ENT_QUOTES, 'UTF-8');
-    $firstname    = htmlspecialchars($_POST['edit_firstname'], ENT_QUOTES, 'UTF-8');
-    $middlename   = htmlspecialchars($_POST['edit_middlename'], ENT_QUOTES, 'UTF-8');
-    $suffix       = htmlspecialchars($_POST['edit_suffix'], ENT_QUOTES, 'UTF-8');
-    $age          = (int) htmlspecialchars($_POST['edit_age'], ENT_QUOTES, 'UTF-8');
-    $birthdate    = htmlspecialchars($_POST['edit_birthdate'], ENT_QUOTES, 'UTF-8');
+    $lrn = (int) htmlspecialchars($_POST['edit_lrn']);
+    $lastname = htmlspecialchars($_POST['edit_lastname']);
+    $firstname = htmlspecialchars($_POST['edit_firstname']);
+    $middlename = htmlspecialchars($_POST['edit_middlename']);
+    $suffix = htmlspecialchars($_POST['edit_suffix']);
+    $age = (int) htmlspecialchars($_POST['edit_age']);
+    $birthdate = htmlspecialchars($_POST['edit_birthdate']);
 
     if (!$conn) {
         echo "<script>alert('Database connection failed for editing student.'); window.location.href='students_list.php';</script>";
@@ -93,13 +86,11 @@ if (isset($_POST['edit_student'])) {
     $conn->begin_transaction();
 
     try {
-        // Update record using the original LRN in the WHERE clause.
         $stmt = $conn->prepare("UPDATE students SET lrn=?, lastname=?, firstname=?, middlename=?, suffix=?, age=?, birthdate=? WHERE lrn=?");
         if ($stmt === false) {
             throw new Exception($conn->error);
         }
 
-        // CORRECTED: The type for birthdate is 's' (string).
         $stmt->bind_param("issssisi", $lrn, $lastname, $firstname, $middlename, $suffix, $age, $birthdate, $original_lrn);
 
         if (!$stmt->execute()) {
@@ -116,7 +107,7 @@ if (isset($_POST['edit_student'])) {
     }
 }
 
-// --- Fetch Students for Display ---
+// Fetch Students for Display
 if (!$conn) {
     die("Database connection failed during student list retrieval.");
 }
@@ -133,78 +124,62 @@ if (!$students_result) {
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>Student List</title>
-
-    <!-- Custom fonts and styles -->
     <link href="vendor/fontawesome-free/css/all.min.css" rel="stylesheet" type="text/css">
     <link href="https://fonts.googleapis.com/css?family=Nunito:200,300,400,600,700,800,900" rel="stylesheet">
     <link href="css/sb-admin-2.min.css" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-
-    <!-- jQuery and Bootstrap JS -->
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
-
     <script>
-    $(document).ready(function() {
-        lucide.createIcons();
-
-        // Open the Edit Modal and fill in the fields with the selected student info.
-        window.openEditModal = function(student) {
-            $('#editModal').modal('show');
-            // The hidden field "edit_id" stores the original LRN.
-            $('#edit_id').val(student.lrn);
-            // New values, so the user can update the LRN if desired.
-            $('#edit_lrn').val(student.lrn);
-            $('#edit_lastname').val(student.lastname);
-            $('#edit_firstname').val(student.firstname);
-            $('#edit_middlename').val(student.middlename);
-            $('#edit_suffix').val(student.suffix);
-            $('#edit_age').val(student.age);
-            $('#edit_birthdate').val(student.birthdate);
-        }
-
-        // Calculate Age Automatically When a Birthdate is Selected in the Add Modal.
-        $('#birthdate').change(function(){
-            var dob = new Date($(this).val());
-            var diff = Date.now() - dob.getTime();
-            var ageDate = new Date(diff);
-            var age = Math.abs(ageDate.getUTCFullYear() - 1970);
-            $('#age').val(age);
-        });
-
-        // Similarly, when a user changes the birthdate in the Edit Modal.
-        $('#edit_birthdate').change(function(){
-            var dob = new Date($(this).val());
-            var diff = Date.now() - dob.getTime();
-            var ageDate = new Date(diff);
-            var age = Math.abs(ageDate.getUTCFullYear() - 1970);
-            $('#edit_age').val(age);
-        });
-
-        // Show status messages based on URL parameters.
-        const urlParams = new URLSearchParams(window.location.search);
-        const status = urlParams.get('status');
-        if (status) {
-            let message = "";
-            if (status === "added") {
-                message = "Student added successfully!";
-            } else if (status === "deleted") {
-                message = "Student deleted successfully!";
-            } else if (status === "updated") {
-                message = "Student updated successfully!";
+        $(document).ready(function() {
+            lucide.createIcons();
+            window.openEditModal = function(student) {
+                $('#editModal').modal('show');
+                $('#edit_id').val(student.lrn);
+                $('#edit_lrn').val(student.lrn);
+                $('#edit_lastname').val(student.lastname);
+                $('#edit_firstname').val(student.firstname);
+                $('#edit_middlename').val(student.middlename);
+                $('#edit_suffix').val(student.suffix);
+                $('#edit_age').val(student.age);
+                $('#edit_birthdate').val(student.birthdate);
             }
-            if (message) {
-                alert(message);
-                window.history.replaceState({}, document.title, "students_list.php");
+            $('#birthdate').change(function(){
+                var dob = new Date($(this).val());
+                var diff = Date.now() - dob.getTime();
+                var ageDate = new Date(diff);
+                var age = Math.abs(ageDate.getUTCFullYear() - 1970);
+                $('#age').val(age);
+            });
+            $('#edit_birthdate').change(function(){
+                var dob = new Date($(this).val());
+                var diff = Date.now() - dob.getTime();
+                var ageDate = new Date(diff);
+                var age = Math.abs(ageDate.getUTCFullYear() - 1970);
+                $('#edit_age').val(age);
+            });
+            const urlParams = new URLSearchParams(window.location.search);
+            const status = urlParams.get('status');
+            if (status) {
+                let message = "";
+                if (status === "added") {
+                    message = "Student added successfully!";
+                } else if (status === "deleted") {
+                    message = "Student deleted successfully!";
+                } else if (status === "updated") {
+                    message = "Student updated successfully!";
+                }
+                if (message) {
+                    alert(message);
+                    window.history.replaceState({}, document.title, "students_list.php");
+                }
             }
-        }
-    });
+        });
     </script>
 </head>
 <body id="page-top">
     <?php include 'nav.php'; ?>
-
     <div id="wrapper">
         <div id="content-wrapper" class="d-flex flex-column">
             <div id="content">
@@ -218,24 +193,25 @@ if (!$students_result) {
                     <div class="bg-gray-50 rounded-xl p-4 shadow-md">
                         <div class="bg-gray-100 rounded-xl p-5 shadow-md">
                             <div class="overflow-x-auto">
-                                <table class="w-full table-auto border border-gray-300 text-sm text-center">
+
+                    <table class="w-full table-auto border border-gray-300 text-sm text-center">
                                     <thead class="bg-gray-200 font-semibold">
-                                        <tr>
-                                            <th class="border px-3 py-2">No.</th>
-                                            <th class="border px-3 py-2">LRN</th>
-                                            <th class="border px-3 py-2">Lastname</th>
-                                            <th class="border px-3 py-2">Firstname</th>
-                                            <th class="border px-3 py-2">Middlename</th>
-                                            <th class="border px-3 py-2">Suffix</th>
-                                            <th class="border px-3 py-2">Age</th>
-                                            <th class="border px-3 py-2">Birthdate</th>
-                                            <th class="border px-3 py-2">Actions</th>
-                                        </tr>
+                                    <tr>
+                                        <th class="border px-3 py-2">No.</th>
+                                        <th class="border px-3 py-2">LRN</th>
+                                        <th class="border px-3 py-2">Lastname</th>
+                                        <th class="border px-3 py-2">Firstname</th>
+                                        <th class="border px-3 py-2">Middlename</th>
+                                        <th class="border px-3 py-2">Suffix</th>
+                                        <th class="border px-3 py-2">Age</th>
+                                        <th class="border px-3 py-2">Birthdate</th>
+                                        <th class="border px-3 py-2">Actions</th>
+                                    </tr>
                                     </thead>
                                     <tbody>
-                                        <?php
-                                        $counter = 1;
-                                        while ($row = $students_result->fetch_assoc()): ?>
+                                    <?php
+                                    $counter = 1;
+                                    while ($row = $students_result->fetch_assoc()): ?>
                                         <tr class="hover:bg-gray-50">
                                             <td class="border px-3 py-2"><?= $counter++ ?></td>
                                             <td class="border px-3 py-2"><?= htmlspecialchars($row['lrn'] ?? '') ?></td>
@@ -246,11 +222,9 @@ if (!$students_result) {
                                             <td class="border px-3 py-2"><?= htmlspecialchars($row['age'] ?? '') ?></td>
                                             <td class="border px-3 py-2"><?= htmlspecialchars($row['birthdate'] ?? '') ?></td>
                                             <td class="border px-3 py-2 space-x-2">
-                                                <!-- Edit Button -->
                                                 <button onclick='openEditModal(<?= json_encode($row) ?>)' class="text-blue-600 hover:text-blue-800 p-1 rounded">
                                                     <i data-lucide="pencil" class="w-5 h-5 inline"></i>
                                                 </button>
-                                                <!-- Delete Form -->
                                                 <form method="POST" class="inline" onsubmit="return confirm('Are you sure you want to delete <?= htmlspecialchars($row['firstname'] .' '. $row['lastname']) ?>?');">
                                                     <input type="hidden" name="student_lrn" value="<?= htmlspecialchars($row['lrn'] ?? '') ?>" />
                                                     <button type="submit" name="delete_student" class="text-red-600 hover:text-red-800 p-1 rounded">
@@ -259,12 +233,12 @@ if (!$students_result) {
                                                 </form>
                                             </td>
                                         </tr>
-                                        <?php endwhile; ?>
-                                        <?php if ($students_result->num_rows === 0): ?>
-                                            <tr>
-                                                <td colspan="9" class="border px-3 py-2 text-center text-gray-500">No students found.</td>
-                                            </tr>
-                                        <?php endif; ?>
+                                    <?php endwhile; ?>
+                                    <?php if ($students_result->num_rows === 0): ?>
+                                        <tr>
+                                            <td colspan="9" class="border px-3 py-2 text-center text-gray-500">No students found.</td>
+                                        </tr>
+                                    <?php endif; ?>
                                     </tbody>
                                 </table>
                             </div>
@@ -306,12 +280,10 @@ if (!$students_result) {
                                         <div class="mb-3">
                                             <input type="text" class="form-control" name="suffix" placeholder="Enter Suffix (Jr., III, etc.)" style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
                                         </div>
-                                        <!-- Age Field -->
                                         <div class="mb-3">
                                             <input type="number" class="form-control" id="age" name="age" placeholder="Student Age" required style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
                                         </div>
                                         <div class="mb-3">
-                                            <!-- Add id "birthdate" to attach change event -->
                                             <input type="date" class="form-control" id="birthdate" name="birthdate" placeholder="Enter Birthdate" required style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
                                         </div>
                                         <div class="text-center">
@@ -346,7 +318,6 @@ if (!$students_result) {
                                     <img src="images/you.png" width="100" height="100" alt="" class="rounded-circle mx-auto d-block"><br>
                                     <h3 class="text-center">EDIT STUDENT</h3><br>
                                     <form method="post">
-                                        <!-- Hidden field to store the original LRN -->
                                         <input type="hidden" id="edit_id" name="edit_id">
                                         <div class="mb-3">
                                             <input type="text" class="form-control" id="edit_lrn" name="edit_lrn" placeholder="Enter LRN" required style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
@@ -363,7 +334,6 @@ if (!$students_result) {
                                         <div class="mb-3">
                                             <input type="text" class="form-control" id="edit_suffix" name="edit_suffix" placeholder="Enter Suffix (Jr., III, etc.)" style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
                                         </div>
-                                        <!-- Edit Age Field -->
                                         <div class="mb-3">
                                             <input type="number" class="form-control" id="edit_age" name="edit_age" placeholder="Enter Age" required style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
                                         </div>

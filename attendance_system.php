@@ -36,12 +36,12 @@ $current_school_year = '2024-2025'; // Adjust this as needed
 // Define Active Time Windows for display
 $morning_start = '06:00 AM';
 $morning_end   = '09:00 AM';
-$afternoon_start = '04:00 PM';
-$afternoon_end   = '06:00 PM';
+$afternoon_start = '02:00 PM';
+$afternoon_end   = '05:00 PM';
 
 // Check if system is currently active
 $is_morning_session   = ($current_time_str >= '06:00:00' && $current_time_str <= '09:00:00');
-$is_afternoon_session = ($current_time_str >= '16:00:00' && $current_time_str <= '18:00:00');
+$is_afternoon_session = ($current_time_str >= '14:00:00' && $current_time_str <= '17:00:00');
 $system_active        = $is_morning_session || $is_afternoon_session;
 
 // Handle RFID Scan
@@ -160,7 +160,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['rfid_uid'])) {
 
 // --- Automated Task to Mark Absences ---
 $current_time = date('H:i:s');
-if ($current_time > '18:00:00') {
+if ($current_time > '17:00:00') {
     $stmt_absent = $pdo->prepare("
         UPDATE attendance
         SET status = 'absent'
