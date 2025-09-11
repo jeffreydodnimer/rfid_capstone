@@ -9,13 +9,19 @@ include 'conn.php';
 
 // Handle Add Student
 if (isset($_POST['add_student'])) {
-    $lrn = (int) htmlspecialchars($_POST['lrn']);
+    $lrn = htmlspecialchars($_POST['lrn']);
     $lastname = htmlspecialchars($_POST['lastname']);
     $firstname = htmlspecialchars($_POST['firstname']);
     $middlename = htmlspecialchars($_POST['middlename']);
     $suffix = htmlspecialchars($_POST['suffix']);
     $age = (int) htmlspecialchars($_POST['age']);
     $birthdate = htmlspecialchars($_POST['birthdate']);
+
+    // Validate LRN length on server side
+    if (strlen($lrn) !== 12 || !ctype_digit($lrn)) {
+        echo "<script>alert('LRN must be exactly 12 digits.'); window.location.href='students_list.php';</script>";
+        exit();
+    }
 
     if (!$conn) {
         echo "<script>alert('Database connection failed for adding student.'); window.location.href='students_list.php';</script>";
@@ -28,7 +34,8 @@ if (isset($_POST['add_student'])) {
         exit();
     }
 
-    $stmt->bind_param("issssis", $lrn, $lastname, $firstname, $middlename, $suffix, $age, $birthdate);
+    // Changed from "issssis" to "ssssiis" - treating LRN as string
+    $stmt->bind_param("ssssiis", $lrn, $lastname, $firstname, $middlename, $suffix, $age, $birthdate);
 
     if ($stmt->execute()) {
         header("Location: students_list.php?status=added");
@@ -41,7 +48,7 @@ if (isset($_POST['add_student'])) {
 
 // Handle Delete Student
 if (isset($_POST['delete_student'])) {
-    $lrn = (int) $_POST['student_lrn'];
+    $lrn = htmlspecialchars($_POST['student_lrn']); // Changed from (int) cast to string
 
     if (!$conn) {
         echo "<script>alert('Database connection failed for deleting student.'); window.location.href='students_list.php';</script>";
@@ -52,7 +59,7 @@ if (isset($_POST['delete_student'])) {
 
     try {
         $stmt = $conn->prepare("DELETE FROM students WHERE lrn = ?");
-        $stmt->bind_param("i", $lrn);
+        $stmt->bind_param("s", $lrn); // Changed from "i" to "s"
         if (!$stmt->execute()) {
             throw new Exception($stmt->error);
         }
@@ -69,14 +76,20 @@ if (isset($_POST['delete_student'])) {
 
 // Handle Edit Student
 if (isset($_POST['edit_student'])) {
-    $original_lrn = (int) $_POST['edit_id'];
-    $lrn = (int) htmlspecialchars($_POST['edit_lrn']);
+    $original_lrn = htmlspecialchars($_POST['edit_id']);
+    $lrn = htmlspecialchars($_POST['edit_lrn']);
     $lastname = htmlspecialchars($_POST['edit_lastname']);
     $firstname = htmlspecialchars($_POST['edit_firstname']);
     $middlename = htmlspecialchars($_POST['edit_middlename']);
     $suffix = htmlspecialchars($_POST['edit_suffix']);
     $age = (int) htmlspecialchars($_POST['edit_age']);
     $birthdate = htmlspecialchars($_POST['edit_birthdate']);
+
+    // Validate LRN length on server side
+    if (strlen($lrn) !== 12 || !ctype_digit($lrn)) {
+        echo "<script>alert('LRN must be exactly 12 digits.'); window.location.href='students_list.php';</script>";
+        exit();
+    }
 
     if (!$conn) {
         echo "<script>alert('Database connection failed for editing student.'); window.location.href='students_list.php';</script>";
@@ -91,7 +104,8 @@ if (isset($_POST['edit_student'])) {
             throw new Exception($conn->error);
         }
 
-        $stmt->bind_param("issssisi", $lrn, $lastname, $firstname, $middlename, $suffix, $age, $birthdate, $original_lrn);
+        // Changed from "issssisi" to "ssssiiss" - treating LRN as string
+        $stmt->bind_param("ssssiiss", $lrn, $lastname, $firstname, $middlename, $suffix, $age, $birthdate, $original_lrn);
 
         if (!$stmt->execute()) {
             throw new Exception($stmt->error);
@@ -176,6 +190,63 @@ if (!$students_result) {
                 }
             }
         });
+
+        // Enhanced LRN validation function
+        function validateLRN(input) {
+            // Remove non-digit characters
+            input.value = input.value.replace(/\D/g, '');
+            
+            // Limit to 12 digits
+            if (input.value.length > 12) {
+                input.value = input.value.substring(0, 12);
+            }
+            
+            const errorElement = input.id === 'add_lrn' 
+                ? document.getElementById('lrn-error') 
+                : document.getElementById('edit-lrn-error');
+            
+            // Check if LRN is exactly 12 digits
+            if (input.value.length !== 12) {
+                input.setCustomValidity('LRN must be exactly 12 digits');
+                errorElement.style.display = 'block';
+                errorElement.textContent = `LRN must be exactly 12 digits (currently ${input.value.length} digits)`;
+            } else {
+                input.setCustomValidity('');
+                errorElement.style.display = 'none';
+            }
+        }
+
+        // Enhanced form validation
+        document.addEventListener('DOMContentLoaded', function() {
+            const addForm = document.querySelector('#addStudentModal form');
+            const editForm = document.querySelector('#editModal form');
+
+            if (addForm) {
+                addForm.addEventListener('submit', function(event) {
+                    const lrnInput = document.getElementById('add_lrn');
+                    if (lrnInput.value.length !== 12 || !/^\d{12}$/.test(lrnInput.value)) {
+                        event.preventDefault();
+                        lrnInput.focus();
+                        document.getElementById('lrn-error').style.display = 'block';
+                        document.getElementById('lrn-error').textContent = 'LRN must be exactly 12 digits';
+                        return false;
+                    }
+                });
+            }
+
+            if (editForm) {
+                editForm.addEventListener('submit', function(event) {
+                    const lrnInput = document.getElementById('edit_lrn');
+                    if (lrnInput.value.length !== 12 || !/^\d{12}$/.test(lrnInput.value)) {
+                        event.preventDefault();
+                        lrnInput.focus();
+                        document.getElementById('edit-lrn-error').style.display = 'block';
+                        document.getElementById('edit-lrn-error').textContent = 'LRN must be exactly 12 digits';
+                        return false;
+                    }
+                });
+            }
+        });
     </script>
 </head>
 <body id="page-top">
@@ -193,52 +264,51 @@ if (!$students_result) {
                     <div class="bg-gray-50 rounded-xl p-4 shadow-md">
                         <div class="bg-gray-100 rounded-xl p-5 shadow-md">
                             <div class="overflow-x-auto">
-
-                    <table class="w-full table-auto border border-gray-300 text-sm text-center">
+                                <table class="w-full table-auto border border-gray-300 text-sm text-center">
                                     <thead class="bg-gray-200 font-semibold">
-                                    <tr>
-                                        <th class="border px-3 py-2">No.</th>
-                                        <th class="border px-3 py-2">LRN</th>
-                                        <th class="border px-3 py-2">Lastname</th>
-                                        <th class="border px-3 py-2">Firstname</th>
-                                        <th class="border px-3 py-2">Middlename</th>
-                                        <th class="border px-3 py-2">Suffix</th>
-                                        <th class="border px-3 py-2">Age</th>
-                                        <th class="border px-3 py-2">Birthdate</th>
-                                        <th class="border px-3 py-2">Actions</th>
-                                    </tr>
+                                        <tr>
+                                            <th class="border px-3 py-2">No.</th>
+                                            <th class="border px-3 py-2">LRN</th>
+                                            <th class="border px-3 py-2">Lastname</th>
+                                            <th class="border px-3 py-2">Firstname</th>
+                                            <th class="border px-3 py-2">Middlename</th>
+                                            <th class="border px-3 py-2">Suffix</th>
+                                            <th class="border px-3 py-2">Age</th>
+                                            <th class="border px-3 py-2">Birthdate</th>
+                                            <th class="border px-3 py-2">Actions</th>
+                                        </tr>
                                     </thead>
                                     <tbody>
-                                    <?php
-                                    $counter = 1;
-                                    while ($row = $students_result->fetch_assoc()): ?>
-                                        <tr class="hover:bg-gray-50">
-                                            <td class="border px-3 py-2"><?= $counter++ ?></td>
-                                            <td class="border px-3 py-2"><?= htmlspecialchars($row['lrn'] ?? '') ?></td>
-                                            <td class="border px-3 py-2"><?= htmlspecialchars($row['lastname'] ?? '') ?></td>
-                                            <td class="border px-3 py-2"><?= htmlspecialchars($row['firstname'] ?? '') ?></td>
-                                            <td class="border px-3 py-2"><?= htmlspecialchars($row['middlename'] ?? '') ?></td>
-                                            <td class="border px-3 py-2"><?= htmlspecialchars($row['suffix'] ?? '') ?></td>
-                                            <td class="border px-3 py-2"><?= htmlspecialchars($row['age'] ?? '') ?></td>
-                                            <td class="border px-3 py-2"><?= htmlspecialchars($row['birthdate'] ?? '') ?></td>
-                                            <td class="border px-3 py-2 space-x-2">
-                                                <button onclick='openEditModal(<?= json_encode($row) ?>)' class="text-blue-600 hover:text-blue-800 p-1 rounded">
-                                                    <i data-lucide="pencil" class="w-5 h-5 inline"></i>
-                                                </button>
-                                                <form method="POST" class="inline" onsubmit="return confirm('Are you sure you want to delete <?= htmlspecialchars($row['firstname'] .' '. $row['lastname']) ?>?');">
-                                                    <input type="hidden" name="student_lrn" value="<?= htmlspecialchars($row['lrn'] ?? '') ?>" />
-                                                    <button type="submit" name="delete_student" class="text-red-600 hover:text-red-800 p-1 rounded">
-                                                        <i data-lucide="trash" class="w-5 h-5 inline"></i>
+                                        <?php
+                                        $counter = 1;
+                                        while ($row = $students_result->fetch_assoc()): ?>
+                                            <tr class="hover:bg-gray-50">
+                                                <td class="border px-3 py-2"><?= $counter++ ?></td>
+                                                <td class="border px-3 py-2"><?= htmlspecialchars($row['lrn'] ?? '') ?></td>
+                                                <td class="border px-3 py-2"><?= htmlspecialchars($row['lastname'] ?? '') ?></td>
+                                                <td class="border px-3 py-2"><?= htmlspecialchars($row['firstname'] ?? '') ?></td>
+                                                <td class="border px-3 py-2"><?= htmlspecialchars($row['middlename'] ?? '') ?></td>
+                                                <td class="border px-3 py-2"><?= htmlspecialchars($row['suffix'] ?? '') ?></td>
+                                                <td class="border px-3 py-2"><?= htmlspecialchars($row['age'] ?? '') ?></td>
+                                                <td class="border px-3 py-2"><?= htmlspecialchars($row['birthdate'] ?? '') ?></td>
+                                                <td class="border px-3 py-2 space-x-2">
+                                                    <button onclick='openEditModal(<?= json_encode($row) ?>)' class="text-blue-600 hover:text-blue-800 p-1 rounded">
+                                                        <i data-lucide="pencil" class="w-5 h-5 inline"></i>
                                                     </button>
-                                                </form>
-                                            </td>
-                                        </tr>
-                                    <?php endwhile; ?>
-                                    <?php if ($students_result->num_rows === 0): ?>
-                                        <tr>
-                                            <td colspan="9" class="border px-3 py-2 text-center text-gray-500">No students found.</td>
-                                        </tr>
-                                    <?php endif; ?>
+                                                    <form method="POST" class="inline" onsubmit="return confirm('Are you sure you want to delete <?= htmlspecialchars($row['firstname'] .' '. $row['lastname']) ?>?');">
+                                                        <input type="hidden" name="student_lrn" value="<?= htmlspecialchars($row['lrn'] ?? '') ?>" />
+                                                        <button type="submit" name="delete_student" class="text-red-600 hover:text-red-800 p-1 rounded">
+                                                            <i data-lucide="trash" class="w-5 h-5 inline"></i>
+                                                        </button>
+                                                    </form>
+                                                </td>
+                                            </tr>
+                                        <?php endwhile; ?>
+                                        <?php if ($students_result->num_rows === 0): ?>
+                                            <tr>
+                                                <td colspan="9" class="border px-3 py-2 text-center text-gray-500">No students found.</td>
+                                            </tr>
+                                        <?php endif; ?>
                                     </tbody>
                                 </table>
                             </div>
@@ -266,7 +336,20 @@ if (!$students_result) {
                                     <h3 class="text-center">ADD STUDENT</h3><br>
                                     <form method="post">
                                         <div class="mb-3">
-                                            <input type="text" class="form-control" name="lrn" placeholder="Enter LRN" required style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
+                                            <input type="text" 
+                                                   class="form-control" 
+                                                   name="lrn" 
+                                                   id="add_lrn" 
+                                                   placeholder="Enter LRN (12 digits)" 
+                                                   required 
+                                                   maxlength="12" 
+                                                   pattern="\d{12}" 
+                                                   style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center; font-family: 'Courier New', monospace; font-size: 16px; letter-spacing: 1px;"
+                                                   oninput="validateLRN(this)"
+                                                   title="LRN must be exactly 12 digits"
+                                                   autocomplete="off"
+                                            >
+                                            <small class="text-danger" id="lrn-error" style="display:none;">LRN must be exactly 12 digits</small>
                                         </div>
                                         <div class="mb-3">
                                             <input type="text" class="form-control" name="lastname" placeholder="Enter Last Name" required style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
@@ -320,7 +403,20 @@ if (!$students_result) {
                                     <form method="post">
                                         <input type="hidden" id="edit_id" name="edit_id">
                                         <div class="mb-3">
-                                            <input type="text" class="form-control" id="edit_lrn" name="edit_lrn" placeholder="Enter LRN" required style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
+                                            <input type="text" 
+                                                   class="form-control" 
+                                                   id="edit_lrn" 
+                                                   name="edit_lrn" 
+                                                   placeholder="Enter LRN (12 digits)" 
+                                                   required 
+                                                   maxlength="12" 
+                                                   pattern="\d{12}" 
+                                                   style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center; font-family: 'Courier New', monospace; font-size: 16px; letter-spacing: 1px;"
+                                                   oninput="validateLRN(this)"
+                                                   title="LRN must be exactly 12 digits"
+                                                   autocomplete="off"
+                                            >
+                                            <small class="text-danger" id="edit-lrn-error" style="display:none;">LRN must be exactly 12 digits</small>
                                         </div>
                                         <div class="mb-3">
                                             <input type="text" class="form-control" id="edit_lastname" name="edit_lastname" placeholder="Enter Last Name" required style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
@@ -361,7 +457,7 @@ if (!$students_result) {
     <footer class="sticky-footer bg-white">
         <div class="container my-auto">
             <div class="copyright text-center my-auto">
-                <span>&copy; Your Website 06/2025</span>
+                <span>&copy; Your Website 07/2025</span>
             </div>
         </div>
     </footer>

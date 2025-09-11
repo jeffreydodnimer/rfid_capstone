@@ -33,16 +33,44 @@ $formatted_date       = date('F j, Y'); // e.g., June 23, 2025
 // Define current school year (you may want to make this configurable)
 $current_school_year = '2024-2025'; // Adjust this as needed
 
-// Define Active Time Windows for display
-$morning_start = '06:00 AM';
-$morning_end   = '09:00 AM';
-$afternoon_start = '02:00 PM';
-$afternoon_end   = '05:00 PM';
+// Get time settings from database
+function getTimeSettings($pdo) {
+    $stmt = $pdo->query("SELECT * FROM time_settings WHERE id = 1");
+    $settings = $stmt->fetch();
+    
+    if (!$settings) {
+        // Default settings if not found in database
+        return [
+            'morning_start' => '06:00:00',
+            'morning_end' => '09:00:00',
+            'morning_late_threshold' => '08:30:00',
+            'afternoon_start' => '16:00:00',
+            'afternoon_end' => '16:30:00'
+        ];
+    }
+    
+    return $settings;
+}
+
+$time_settings = getTimeSettings($pdo);
+
+// Parse database time settings
+$morning_start = $time_settings['morning_start'];
+$morning_end = $time_settings['morning_end'];
+$morning_late_threshold = $time_settings['morning_late_threshold'];
+$afternoon_start = $time_settings['afternoon_start'];
+$afternoon_end = $time_settings['afternoon_end'];
+
+// Format times for display
+$morning_start_display = date('h:i A', strtotime($morning_start));
+$morning_end_display = date('h:i A', strtotime($morning_end));
+$afternoon_start_display = date('h:i A', strtotime($afternoon_start));
+$afternoon_end_display = date('h:i A', strtotime($afternoon_end));
 
 // Check if system is currently active
-$is_morning_session   = ($current_time_str >= '06:00:00' && $current_time_str <= '09:00:00');
-$is_afternoon_session = ($current_time_str >= '14:00:00' && $current_time_str <= '17:00:00');
-$system_active        = $is_morning_session || $is_afternoon_session;
+$is_morning_session = ($current_time_str >= $morning_start && $current_time_str <= $morning_end);
+$is_afternoon_session = ($current_time_str >= $afternoon_start && $current_time_str <= $afternoon_end);
+$system_active = $is_morning_session || $is_afternoon_session;
 
 // Handle RFID Scan
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['rfid_uid'])) {
@@ -100,8 +128,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['rfid_uid'])) {
                     if ($todays_record) {
                         $message = '<div class="alert info">' . htmlspecialchars($student['firstname'] . ' ' . $student['lastname']) . ' has already timed in today.</div>';
                     } else {
-                        // Present if scanned before 8:30:00; Late if at or after 10:30:00
-                        $status = ($current_time_str < '08:30:00') ? 'present' : 'late';
+                        // Present if scanned before the late threshold; Late if after
+                        $status = ($current_time_str < $morning_late_threshold) ? 'present' : 'late';
 
                         $stmt_insert = $pdo->prepare("
                             INSERT INTO attendance (lrn, enrollment_id, date, time_in, status)
@@ -149,7 +177,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['rfid_uid'])) {
                     }
                 } else {
                     // --- SYSTEM INACTIVE ---
-                    $message = '<div class="alert error">The attendance system is currently inactive. Please try again during the active hours (6:00-9:00 AM for Time In or 4:00-6:00 PM for Time Out).</div>';
+                    $message = '<div class="alert error">The attendance system is currently inactive. Please try again during the active hours ('. $morning_start_display .' - '. $morning_end_display .' for Time In or '. $afternoon_start_display .' - '. $afternoon_end_display .' for Time Out).</div>';
                 }
             }
         } else {
@@ -160,7 +188,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['rfid_uid'])) {
 
 // --- Automated Task to Mark Absences ---
 $current_time = date('H:i:s');
-if ($current_time > '17:00:00') {
+if ($current_time > $afternoon_end) {
     $stmt_absent = $pdo->prepare("
         UPDATE attendance
         SET status = 'absent'
@@ -238,24 +266,24 @@ if ($current_time > '17:00:00') {
         }
         h1 {
             color: var(--primary-blue);
-            font-size: 1.5em;
+            font-size: 1.5em; 
             font-weight: 700;
             margin: 0;
-            line-height: 0.1;
+            line-height: 0.1; 
         }
         h1 .sub-heading {
             display: block;
-            font-size: 0.6em;
+            font-size: 0.6em; 
             font-weight: 500;
             color: var(--text-dark);
             margin-top: 20px;
         }
 
         .live-datetime {
-            font-size: 1.0em;
+            font-size: 1.0em; 
             font-weight: 500;
             color: var(--text-dark);
-            margin-bottom: 17px;
+            margin-bottom: 17px; 
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -266,7 +294,7 @@ if ($current_time > '17:00:00') {
             color: var(--text-medium);
         }
         .live-datetime .time-display {
-            font-size: 1.5em;
+            font-size: 1.5em; 
             font-weight: 700;
             color: var(--primary-blue);
         }
@@ -275,7 +303,7 @@ if ($current_time > '17:00:00') {
             display: flex;
             align-items: center;
             justify-content: center;
-            margin-bottom: 25px;
+            margin-bottom: 25px; 
             font-weight: 600;
             font-size: 0.9em;
         }
@@ -293,6 +321,7 @@ if ($current_time > '17:00:00') {
         .status-dot.inactive {
             background-color: var(--error-red);
         }
+        
         .active-hours {
             font-size: 0.9em;
             color: var(--text-light);
@@ -505,8 +534,9 @@ if ($current_time > '17:00:00') {
                 <?php echo $system_active ? ' Active' : ' Inactive'; ?>
             </span>
         </div>
+        
         <div class="active-hours">
-            (Time In: <?php echo $morning_start . ' - ' . $morning_end; ?> | Time Out: <?php echo $afternoon_start . ' - ' . $afternoon_end; ?>)
+            (Time In: <?php echo $morning_start_display . ' - ' . $morning_end_display; ?> | Time Out: <?php echo $afternoon_start_display . ' - ' . $afternoon_end_display; ?>)
         </div>
 
         <?php echo $message; ?>

@@ -84,6 +84,11 @@ $conn->close();
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
     <style>
+        /* Make all text bold */
+        body {
+            font-weight: 700 !important; /* 700 is the numeric value for 'bold' */
+        }
+
         /* Custom styles for sidebar toggling */
         #accordionSidebar {
             transition: width 0.3s ease-in-out, margin 0.3s ease-in-out;
@@ -132,6 +137,19 @@ $conn->close();
         /* Social media links styling */
         .social-links .nav-link {
             padding: 0.5rem 1rem;
+        }
+        
+        /* Custom button color for Maroon */
+        .btn-maroon {
+            color: #fff;
+            background-color: #800000; /* Maroon */
+            border-color: #800000;
+        }
+
+        .btn-maroon:hover {
+            color: #fff;
+            background-color: #660000; /* Darker Maroon on hover */
+            border-color: #590000;
         }
     </style>
 </head>
@@ -327,7 +345,7 @@ $conn->close();
                     <!-- Page Heading -->
                     <div class="d-sm-flex align-items-center justify-content-between mb-4">
                         <h1 class="h3 mb-0 text-gray-800">Dashboard</h1>
-                        <a href="generate_report.php" class="d-none d-sm-inline-block btn btn-sm btn-primary shadow-sm">
+                        <a href="generate_report.php" class="d-none d-sm-inline-block btn btn-sm btn-maroon shadow-sm">
                             <i class="fas fa-download fa-sm text-white-50"></i> Generate Report
                         </a>
                     </div>
@@ -345,7 +363,7 @@ $conn->close();
                                             <h3 class="mb-0 text-gray-800"><?= number_format($totalStudents) ?></h3>
                                         </div>
                                         <div class="col-auto">
-                                            <i class="fas fa-user-graduate fa-2x text-gray-300"></i>
+                                            <i class="fas fa-user-graduate fa-2x text-danger"></i>
                                         </div>
                                     </div>
                                 </div>
@@ -363,7 +381,7 @@ $conn->close();
                                             <small class="text-success"><?= $attendanceRate ?>% attendance rate</small>
                                         </div>
                                         <div class="col-auto">
-                                            <i class="fas fa-check-circle fa-2x text-gray-300"></i>
+                                            <i class="fas fa-user-check fa-2x text-success"></i>
                                         </div>
                                     </div>
                                 </div>
@@ -381,7 +399,7 @@ $conn->close();
                                             <small class="text-danger"><?= $absenceRate ?>% absence rate</small>
                                         </div>
                                         <div class="col-auto">
-                                            <i class="fas fa-user-times fa-2x text-gray-300"></i>
+                                            <i class="fas fa-user-times fa-2x text-warning"></i>
                                         </div>
                                     </div>
                                 </div>
@@ -397,10 +415,10 @@ $conn->close();
                                 <div class="card-body">
                                     <div class="row g-3">
                                         <div class="col-md-4 col-sm-6">
-                                            <a href="edit_student.php" class="btn btn-primary w-100"><i class="bi bi-person"></i> Edit Student</a>
+                                            <a href="attendance_time.php" class="btn btn-primary w-100"><i class="bi bi-clock"></i> Attendance Time Setting</a>
                                         </div>
                                         <div class="col-md-4 col-sm-6">
-                                            <a href="calendar.php" class="btn btn-success w-100"><i class="bi bi-person-calendar"></i> Student Calendar</a>
+                                            <a href="student_calendar.php" class="btn btn-success w-100"><i class="bi bi-calendar"></i> Student Calendar</a>
                                         </div>
                                         <div class="col-md-4 col-sm-6">
                                             <a href="view_attendance.php" class="btn btn-warning text-dark w-100"><i class="bi bi-eye"></i> View Attendance</a>

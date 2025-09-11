@@ -74,7 +74,6 @@
     </style>
 </head>
 <body>
-    <?php include'nav.php';?>
     <div class="container">
         <h1>Generate SF2 Attendance Report</h1>
 
