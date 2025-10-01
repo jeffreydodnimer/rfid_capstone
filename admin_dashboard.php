@@ -7,41 +7,71 @@ if (!isset($_SESSION['email'])) {
 $userEmail = $_SESSION['email'];
 
 // Include database connection
-include 'conn.php';
+include 'conn.php'; // This file should establish a mysqli connection named $conn
 
 // Check if $conn is a valid database connection object
 if (!isset($conn) || $conn->connect_error) {
     die("Database connection failed: " . ($conn->connect_error ?? "Unknown error"));
 }
 
-// Fetch total students
-$sqlStudents = "SELECT COUNT(*) AS total_students FROM students";
-$resultStudents = $conn->query($sqlStudents);
-$totalStudents = $resultStudents && $resultStudents->num_rows > 0 ? $resultStudents->fetch_assoc()['total_students'] : 0;
+// Set timezone and define current school year, matching the attendance system
+date_default_timezone_set('Asia/Manila');
+$current_school_year = '2024-2025'; // Match this with your attendance system
+$current_date = date('Y-m-d');
 
-// Fetch present students today
-$today = date('Y-m-d');
-$sqlPresentToday = "SELECT COUNT(*) AS present_today FROM attendance WHERE date = '$today' AND status = 'present'";
-$resultPresent = $conn->query($sqlPresentToday);
-$presentToday = $resultPresent && $resultPresent->num_rows > 0 ? $resultPresent->fetch_assoc()['present_today'] : 0;
+// --- Corrected Logic ---
+// 1. Fetch total students ENROLLED in the current school year (matches attendance system logic)
+$totalStudents = 0;
+$stmt = $conn->prepare("SELECT COUNT(*) AS total_students FROM enrollments WHERE school_year = ?");
+$stmt->bind_param("s", $current_school_year);
+$stmt->execute();
+$result = $stmt->get_result();
+if ($result) {
+    $totalStudents = $result->fetch_assoc()['total_students'] ?? 0;
+}
+$stmt->close();
 
+
+// 2. Fetch present students today (Correctly including 'present' AND 'late' status)
+$presentToday = 0;
+$stmt = $conn->prepare("SELECT COUNT(*) AS present_today FROM attendance WHERE date = ? AND status IN ('present', 'late')");
+$stmt->bind_param("s", $current_date);
+$stmt->execute();
+$result = $stmt->get_result();
+if ($result) {
+    $presentToday = $result->fetch_assoc()['present_today'] ?? 0;
+}
+$stmt->close();
+
+
+// Calculate absent and rates based on corrected numbers
 $absentToday = $totalStudents - $presentToday;
 $attendanceRate = $totalStudents > 0 ? round(($presentToday / $totalStudents) * 100, 1) : 0;
-$absenceRate = 100 - $attendanceRate;
+$absenceRate = $totalStudents > 0 ? round(($absentToday / $totalStudents) * 100, 1) : 0;
 
-// Prepare data for attendance overview chart
+
+// 3. Prepare data for attendance overview chart (also using corrected logic)
 $weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 $attendanceOverview = [];
 
 foreach ($weekdays as $day) {
-    $sqlDate = "SELECT MAX(date) AS last_date FROM attendance WHERE DAYNAME(date) = '$day'";
-    $resDate = $conn->query($sqlDate);
-    $lastDate = ($resDate && $resDate->num_rows > 0) ? $resDate->fetch_assoc()['last_date'] : null;
+    // Find the last recorded date for this weekday
+    $stmtDate = $conn->prepare("SELECT MAX(date) AS last_date FROM attendance WHERE DAYNAME(date) = ?");
+    $stmtDate->bind_param("s", $day);
+    $stmtDate->execute();
+    $resDate = $stmtDate->get_result();
+    $lastDate = ($resDate) ? $resDate->fetch_assoc()['last_date'] : null;
+    $stmtDate->close();
 
     if ($lastDate) {
-        $sqlPresent = "SELECT COUNT(*) AS present_count FROM attendance WHERE date = '$lastDate' AND status = 'present'";
-        $resPresent = $conn->query($sqlPresent);
-        $presentCount = ($resPresent && $resPresent->num_rows > 0) ? $resPresent->fetch_assoc()['present_count'] : 0;
+        // Count present and late for that day to get the correct percentage
+        $stmtPresent = $conn->prepare("SELECT COUNT(*) AS present_count FROM attendance WHERE date = ? AND status IN ('present', 'late')");
+        $stmtPresent->bind_param("s", $lastDate);
+        $stmtPresent->execute();
+        $resPresent = $stmtPresent->get_result();
+        $presentCount = ($resPresent) ? $resPresent->fetch_assoc()['present_count'] : 0;
+        $stmtPresent->close();
+        
         $percent = $totalStudents > 0 ? round(($presentCount / $totalStudents) * 100, 1) : 0;
 
         $attendanceOverview[$day] = [
@@ -150,6 +180,33 @@ $conn->close();
             color: #fff;
             background-color: #660000; /* Darker Maroon on hover */
             border-color: #590000;
+        }
+        
+        /* Navigation item styling */
+        .nav-item .nav-link {
+            display: flex;
+            align-items: center;
+        }
+        
+        .nav-item .nav-link i {
+            margin-right: 0.5rem;
+        }
+
+        /* Adjustments for direct links in topbar */
+        .topbar .navbar-nav .nav-item .nav-link {
+            display: flex;
+            align-items: center;
+            height: 100%; /* Ensure full height for vertical alignment */
+            padding-right: 0.75rem; /* Match existing padding if needed */
+            padding-left: 0.75rem; /* Match existing padding if needed */
+        }
+
+        .topbar .navbar-nav .nav-item .nav-link .img-profile {
+            height: 2rem; /* Adjust image size for inline display */
+            width: 2rem;
+        }
+        .topbar .navbar-nav .nav-item .nav-link i {
+            margin-right: 0.5rem; /* Spacing for icons */
         }
     </style>
 </head>
@@ -315,23 +372,20 @@ $conn->close();
 
                         <div class="topbar-divider d-none d-sm-block"></div>
 
-                        <!-- Nav Item - User Information -->
-                        <li class="nav-item dropdown no-arrow">
-                            <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                        <!-- Nav Item - User Information (now a direct link to Profile) -->
+                        <li class="nav-item">
+                            <a class="nav-link" href="profile.php">
                                 <span class="mr-2 d-none d-lg-inline text-gray-600 small"><?= htmlspecialchars($userEmail) ?></span>
                                 <img class="img-profile rounded-circle" src="img/profile.svg">
                             </a>
-                            <div class="dropdown-menu dropdown-menu-right shadow animated--grow-in" aria-labelledby="userDropdown">
-                                <a class="dropdown-item" href="profile.php">
-                                    <i class="fas fa-user fa-sm fa-fw mr-2 text-gray-400"></i>
-                                    Profile
-                                </a>
-                                <div class="dropdown-divider"></div>
-                                <a class="dropdown-item" href="#" data-toggle="modal" data-target="#logoutModal">
-                                    <i class="fas fa-sign-out-alt fa-sm fa-fw mr-2 text-gray-400"></i>
-                                    Logout
-                                </a>
-                            </div>
+                        </li>
+                        
+                        <!-- Nav Item - Logout (direct link, opens modal) -->
+                        <li class="nav-item">
+                            <a class="nav-link" href="#" data-toggle="modal" data-target="#logoutModal">
+                                <i class="fas fa-sign-out-alt fa-sm fa-fw mr-2 text-gray-400"></i>
+                                <span class="d-none d-lg-inline text-gray-600 small">Logout</span>
+                            </a>
                         </li>
 
                     </ul>
@@ -359,8 +413,9 @@ $conn->close();
                                 <div class="card-body">
                                     <div class="row no-gutters align-items-center">
                                         <div class="col mr-2">
-                                            <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">Total Students</div>
+                                            <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">Total Enrolled Students</div>
                                             <h3 class="mb-0 text-gray-800"><?= number_format($totalStudents) ?></h3>
+                                             <small class="text-muted">For SY <?= htmlspecialchars($current_school_year) ?></small>
                                         </div>
                                         <div class="col-auto">
                                             <i class="fas fa-user-graduate fa-2x text-danger"></i>
@@ -429,7 +484,7 @@ $conn->close();
 
                             <!-- Attendance Overview Chart -->
                             <div class="card mb-4 shadow-sm">
-                                <div class="card-header bg-primary text-white fw-semibold">Attendance Overview</div>
+                                <div class="card-header bg-primary text-white fw-semibold">Weekly Attendance Overview</div>
                                 <div class="card-body">
                                     <canvas id="attendanceChart" height="150"></canvas>
                                 </div>
@@ -462,15 +517,15 @@ $conn->close();
         <div class="modal-dialog" role="document">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="exampleModalLabel">Ready to Leave?</h5>
+                    <h5 class="modal-title" id="exampleModalLabel">Are you sure to Logout?</h5>
                     <button class="close" type="button" data-dismiss="modal" aria-label="Close">
                         <span aria-hidden="true">×</span>
                     </button>
                 </div>
-                <div class="modal-body">Select "Logout" below if you are ready to end your current session.</div>
                 <div class="modal-footer">
                     <button class="btn btn-secondary" type="button" data-dismiss="modal">Cancel</button>
-                    <a class="btn btn-primary" href="index.php">Logout</a>
+                    <!-- Changed btn-primary to btn-danger here -->
+                    <a class="btn btn-danger" href="index.php">Logout</a>
                 </div>
             </div>
         </div>
@@ -508,8 +563,9 @@ $conn->close();
         document.addEventListener('DOMContentLoaded', function() {
             const ctx = document.getElementById('attendanceChart');
             if (ctx) {
+                // Use the PHP array to populate the chart data
                 const labels = <?= json_encode(array_keys($attendanceOverview)) ?>;
-                const percentages = <?= json_encode(array_map(fn($d) => $d['percentage'], $attendanceOverview)) ?>;
+                const percentages = <?= json_encode(array_values(array_column($attendanceOverview, 'percentage'))) ?>;
 
                 new Chart(ctx, {
                     type: 'bar',
@@ -537,7 +593,7 @@ $conn->close();
                         },
                         plugins: {
                             legend: { display: false },
-                            tooltip: { callbacks: { label: ctx => ctx.parsed.y + '% attendance' } }
+                            tooltip: { callbacks: { label: context => context.parsed.y + '% attendance' } }
                         },
                         responsive: true,
                         maintainAspectRatio: false
