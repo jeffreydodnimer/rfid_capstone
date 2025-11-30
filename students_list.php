@@ -7,462 +7,1019 @@ if (!isset($_SESSION['email'])) {
 
 include 'conn.php';
 
-// Handle Add Student
+define('STUDENT_UPLOAD_DIR', __DIR__ . '/uploads/');
+if (!file_exists(STUDENT_UPLOAD_DIR)) {
+    mkdir(STUDENT_UPLOAD_DIR, 0755, true);
+}
+
+function convertDateFormat($dateString) {
+    if (empty($dateString)) return null;
+    if (!is_string($dateString)) return null;
+
+    if (preg_match('/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/', $dateString, $m)) {
+        if (checkdate($m[2], $m[1], $m[3])) {
+            return sprintf("%04d-%02d-%02d", $m[3], $m[2], $m[1]);
+        }
+    }
+    return null;
+}
+
+function safeTrim($value) {
+    if (is_null($value) || is_array($value) || is_bool($value) || is_object($value)) {
+        return '';
+    }
+    return trim((string)$value);
+}
+
+function handleProfileImageUpload($inputName, $existing = null) {
+    $filename = $existing;
+    $errors = [];
+
+    if (isset($_FILES[$inputName]) && $_FILES[$inputName]['error'] === UPLOAD_ERR_OK) {
+        $allowedExts = ['jpg', 'jpeg', 'png', 'gif'];
+        $allowedMimes = ['image/jpeg', 'image/png', 'image/gif'];
+
+        $tmpPath = $_FILES[$inputName]['tmp_name'];
+        $ext = strtolower(pathinfo($_FILES[$inputName]['name'], PATHINFO_EXTENSION));
+        $mime = mime_content_type($tmpPath);
+
+        if (!in_array($ext, $allowedExts) || !in_array($mime, $allowedMimes)) {
+            $errors[] = 'Only JPG, PNG or GIF files are allowed.';
+        }
+
+        if ($_FILES[$inputName]['size'] > 2 * 1024 * 1024) {
+            $errors[] = 'Maximum file size is 2MB.';
+        }
+
+        if (empty($errors)) {
+            if ($existing && file_exists(STUDENT_UPLOAD_DIR . $existing)) {
+                unlink(STUDENT_UPLOAD_DIR . $existing);
+            }
+            $filename = uniqid('student_', true) . '.' . $ext;
+            if (!move_uploaded_file($tmpPath, STUDENT_UPLOAD_DIR . $filename)) {
+                $errors[] = 'Unable to save uploaded image.';
+            }
+        }
+    }
+
+    return [$filename, $errors];
+}
+
+function alertAndBack($msg) {
+    $escaped = json_encode($msg);
+    echo "<script>alert({$escaped}); window.location.href='students_list.php';</script>";
+    exit();
+}
+
+//
+// ------------- CSV IMPORT -------------
+//
+if (isset($_POST['import_csv']) && isset($_FILES['csvfile']) && $_FILES['csvfile']['error'] === UPLOAD_ERR_OK) {
+
+    $tmpPath = $_FILES['csvfile']['tmp_name'];
+    $fileName = $_FILES['csvfile']['name'];
+
+    $fileExt = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
+    if ($fileExt !== 'csv') {
+        alertAndBack('❌ Please upload a CSV file.');
+    }
+
+    if ($_FILES['csvfile']['size'] > 5 * 1024 * 1024) {
+        alertAndBack('❌ File size exceeds 5MB limit.');
+    }
+
+    if (($handle = fopen($tmpPath, 'r')) !== false) {
+
+        ini_set('auto_detect_line_endings', 1);
+        $header = fgetcsv($handle, 2000, ",");
+
+        if (!is_array($header) || count($header) < 7) {
+            fclose($handle);
+            alertAndBack('❌ CSV must have at least 7 columns: LRN, Lastname, Firstname, Middlename, Suffix, Age, Birthdate');
+        }
+
+        $stmt = $conn->prepare("INSERT INTO students (lrn, lastname, firstname, middlename, suffix, age, birthdate)
+                                VALUES (?, ?, ?, ?, ?, ?, ?)");
+        if (!$stmt) {
+            fclose($handle);
+            alertAndBack('❌ Prepare failed: ' . addslashes($conn->error));
+        }
+
+        $rowCount = 0;
+        $errors = [];
+        $row_num = 1;
+
+        while (($data = fgetcsv($handle, 2000, ",")) !== false) {
+            $row_num++;
+            if (!is_array($data) || count(array_filter($data)) === 0) {
+                continue;
+            }
+
+            if (count($data) < 7) {
+                $errors[] = "Row {$row_num}: Expected 7 columns, found " . count($data);
+                continue;
+            }
+
+            $lrn        = safeTrim($data[0] ?? '');
+            $lastname   = safeTrim($data[1] ?? '');
+            $firstname  = safeTrim($data[2] ?? '');
+            $middlename = safeTrim($data[3] ?? '');
+            $suffix     = safeTrim($data[4] ?? '');
+            $age_raw    = safeTrim($data[5] ?? '');
+            $birth_raw  = safeTrim($data[6] ?? '');
+
+            if (empty($lrn) || strlen($lrn) !== 12 || !ctype_digit($lrn)) {
+                $errors[] = "Row {$row_num}: Invalid LRN '{$lrn}'";
+                continue;
+            }
+
+            if (empty($age_raw) || !ctype_digit($age_raw) || intval($age_raw) <= 0 || intval($age_raw) > 120) {
+                $errors[] = "Row {$row_num}: Invalid age '{$age_raw}'";
+                continue;
+            }
+            $age = (int)$age_raw;
+
+            $birthdate = convertDateFormat($birth_raw);
+            if ($birthdate === null) {
+                $errors[] = "Row {$row_num}: Invalid date '{$birth_raw}'";
+                continue;
+            }
+
+            $check = $conn->prepare("SELECT lrn FROM students WHERE lrn = ?");
+            if (!$check) {
+                $errors[] = "Row {$row_num}: Database error.";
+                continue;
+            }
+            $check->bind_param("s", $lrn);
+            $check->execute();
+            $check_result = $check->get_result();
+
+            if ($check_result->num_rows > 0) {
+                $errors[] = "Row {$row_num}: Duplicate LRN '{$lrn}'";
+                $check->close();
+                continue;
+            }
+            $check->close();
+
+            $stmt->bind_param("ssssiss", $lrn, $lastname, $firstname, $middlename, $suffix, $age, $birthdate);
+
+            if (!$stmt->execute()) {
+                $errors[] = "Row {$row_num}: Database error.";
+                continue;
+            }
+
+            $rowCount++;
+        }
+
+        fclose($handle);
+        $stmt->close();
+
+        $message = "✓ CSV Import Complete\n\n";
+        $message .= "✓ Successfully imported: {$rowCount} students\n";
+
+        if (!empty($errors)) {
+            $message .= "\n❌ Errors (" . count($errors) . " rows failed):\n";
+            $message .= implode("\n", array_slice($errors, 0, 5));
+            if (count($errors) > 5) {
+                $message .= "\n... and " . (count($errors) - 5) . " more errors.";
+            }
+        }
+
+        $escapedMessage = json_encode($message);
+        echo "<script>alert({$escapedMessage}); window.location.href='students_list.php?status=imported';</script>";
+        exit();
+    } else {
+        alertAndBack('❌ Failed to open CSV file.');
+    }
+}
+
+//
+// ------------- ADD STUDENT -------------
+//
 if (isset($_POST['add_student'])) {
-    $lrn = htmlspecialchars($_POST['lrn']);
-    $lastname = htmlspecialchars($_POST['lastname']);
-    $firstname = htmlspecialchars($_POST['firstname']);
-    $middlename = htmlspecialchars($_POST['middlename']);
-    $suffix = htmlspecialchars($_POST['suffix']);
-    $age = (int) htmlspecialchars($_POST['age']);
-    $birthdate = htmlspecialchars($_POST['birthdate']);
 
-    // Validate LRN length on server side
+    $lrn = htmlspecialchars(safeTrim($_POST['lrn'] ?? ''));
+    $lastname = htmlspecialchars(safeTrim($_POST['lastname'] ?? ''));
+    $firstname = htmlspecialchars(safeTrim($_POST['firstname'] ?? ''));
+    $middlename = htmlspecialchars(safeTrim($_POST['middlename'] ?? ''));
+    $suffix = htmlspecialchars(safeTrim($_POST['suffix'] ?? ''));
+    $age = !empty($_POST['age']) ? (int)$_POST['age'] : 0;
+    $birth_raw = htmlspecialchars(safeTrim($_POST['birthdate'] ?? ''));
+
+    $birthdate = convertDateFormat($birth_raw);
+    if ($birthdate === null) {
+        alertAndBack('❌ Invalid birthdate format (use DD-MM-YYYY or DD/MM/YYYY)');
+    }
+
     if (strlen($lrn) !== 12 || !ctype_digit($lrn)) {
-        echo "<script>alert('LRN must be exactly 12 digits.'); window.location.href='students_list.php';</script>";
-        exit();
+        alertAndBack('❌ LRN must be exactly 12 digits');
     }
 
-    if (!$conn) {
-        echo "<script>alert('Database connection failed for adding student.'); window.location.href='students_list.php';</script>";
-        exit();
+    list($profileImage, $imgErrors) = handleProfileImageUpload('profile_image');
+    if ($imgErrors) {
+        alertAndBack(implode("\\n", $imgErrors));
     }
 
-    $stmt = $conn->prepare("INSERT INTO students (lrn, lastname, firstname, middlename, suffix, age, birthdate) VALUES (?, ?, ?, ?, ?, ?, ?)");
-    if ($stmt === false) {
-        echo "<script>alert('Error preparing add statement: " . $conn->error . "'); window.location.href='students_list.php';</script>";
-        exit();
-    }
-
-    // Changed from "issssis" to "ssssiis" - treating LRN as string
-    $stmt->bind_param("ssssiis", $lrn, $lastname, $firstname, $middlename, $suffix, $age, $birthdate);
+    $stmt = $conn->prepare("INSERT INTO students (lrn, lastname, firstname, middlename, suffix, age, birthdate, profile_image)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+    $stmt->bind_param("sssssiss", $lrn, $lastname, $firstname, $middlename, $suffix, $age, $birthdate, $profileImage);
 
     if ($stmt->execute()) {
         header("Location: students_list.php?status=added");
         exit();
     } else {
-        echo "<script>alert('Error adding student: " . $stmt->error . "'); window.location.href='students_list.php';</script>";
+        alertAndBack('❌ Error adding student: ' . addslashes($stmt->error));
     }
     $stmt->close();
 }
 
-// Handle Delete Student
+//
+// ------------- DELETE STUDENT -------------
+//
 if (isset($_POST['delete_student'])) {
-    $lrn = htmlspecialchars($_POST['student_lrn']); // Changed from (int) cast to string
 
-    if (!$conn) {
-        echo "<script>alert('Database connection failed for deleting student.'); window.location.href='students_list.php';</script>";
-        exit();
+    $lrn = htmlspecialchars(safeTrim($_POST['student_lrn'] ?? ''));
+
+    if (empty($lrn)) {
+        alertAndBack('❌ Invalid student');
     }
 
-    $conn->begin_transaction();
-
-    try {
-        $stmt = $conn->prepare("DELETE FROM students WHERE lrn = ?");
-        $stmt->bind_param("s", $lrn); // Changed from "i" to "s"
-        if (!$stmt->execute()) {
-            throw new Exception($stmt->error);
+    $select = $conn->prepare("SELECT profile_image FROM students WHERE lrn = ?");
+    $select->bind_param("s", $lrn);
+    $select->execute();
+    $result = $select->get_result();
+    if ($result && $row = $result->fetch_assoc()) {
+        if ($row['profile_image'] && file_exists(STUDENT_UPLOAD_DIR . $row['profile_image'])) {
+            unlink(STUDENT_UPLOAD_DIR . $row['profile_image']);
         }
-        $stmt->close();
-        $conn->commit();
+    }
+    $select->close();
+
+    $stmt = $conn->prepare("DELETE FROM students WHERE lrn = ?");
+    $stmt->bind_param("s", $lrn);
+
+    if ($stmt->execute()) {
         header("Location: students_list.php?status=deleted");
         exit();
-    } catch (Exception $e) {
-        $conn->rollback();
-        echo "<script>alert('Error deleting student: " . $e->getMessage() . "'); window.location.href='students_list.php';</script>";
-        exit();
+    } else {
+        alertAndBack('❌ Error deleting student: ' . addslashes($stmt->error));
     }
+    $stmt->close();
 }
 
-// Handle Edit Student
+//
+// ------------- EDIT STUDENT -------------
+//
 if (isset($_POST['edit_student'])) {
-    $original_lrn = htmlspecialchars($_POST['edit_id']);
-    $lrn = htmlspecialchars($_POST['edit_lrn']);
-    $lastname = htmlspecialchars($_POST['edit_lastname']);
-    $firstname = htmlspecialchars($_POST['edit_firstname']);
-    $middlename = htmlspecialchars($_POST['edit_middlename']);
-    $suffix = htmlspecialchars($_POST['edit_suffix']);
-    $age = (int) htmlspecialchars($_POST['edit_age']);
-    $birthdate = htmlspecialchars($_POST['edit_birthdate']);
 
-    // Validate LRN length on server side
+    $original_lrn = htmlspecialchars(safeTrim($_POST['edit_id'] ?? ''));
+    $lrn = htmlspecialchars(safeTrim($_POST['edit_lrn'] ?? ''));
+    $lastname = htmlspecialchars(safeTrim($_POST['edit_lastname'] ?? ''));
+    $firstname = htmlspecialchars(safeTrim($_POST['edit_firstname'] ?? ''));
+    $middlename = htmlspecialchars(safeTrim($_POST['edit_middlename'] ?? ''));
+    $suffix = htmlspecialchars(safeTrim($_POST['edit_suffix'] ?? ''));
+    $age = !empty($_POST['edit_age']) ? (int)$_POST['edit_age'] : 0;
+    $birth_raw = htmlspecialchars(safeTrim($_POST['edit_birthdate'] ?? ''));
+    $existingProfile = htmlspecialchars(safeTrim($_POST['existing_profile'] ?? ''));
+
+    $birthdate = convertDateFormat($birth_raw);
+    if ($birthdate === null) {
+        alertAndBack('❌ Invalid birthdate format');
+    }
+
     if (strlen($lrn) !== 12 || !ctype_digit($lrn)) {
-        echo "<script>alert('LRN must be exactly 12 digits.'); window.location.href='students_list.php';</script>";
-        exit();
+        alertAndBack('❌ LRN must be exactly 12 digits');
     }
 
-    if (!$conn) {
-        echo "<script>alert('Database connection failed for editing student.'); window.location.href='students_list.php';</script>";
-        exit();
+    list($profileImage, $imgErrors) = handleProfileImageUpload('edit_profile_image', $existingProfile);
+    if ($imgErrors) {
+        alertAndBack(implode("\\n", $imgErrors));
     }
 
-    $conn->begin_transaction();
+    $stmt = $conn->prepare("UPDATE students
+                            SET lrn=?, lastname=?, firstname=?, middlename=?, suffix=?, age=?, birthdate=?, profile_image=?
+                            WHERE lrn=?");
 
-    try {
-        $stmt = $conn->prepare("UPDATE students SET lrn=?, lastname=?, firstname=?, middlename=?, suffix=?, age=?, birthdate=? WHERE lrn=?");
-        if ($stmt === false) {
-            throw new Exception($conn->error);
-        }
+    $stmt->bind_param("sssssisss", $lrn, $lastname, $firstname, $middlename, $suffix, $age, $birthdate, $profileImage, $original_lrn);
 
-        // Changed from "issssisi" to "ssssiiss" - treating LRN as string
-        $stmt->bind_param("ssssiiss", $lrn, $lastname, $firstname, $middlename, $suffix, $age, $birthdate, $original_lrn);
-
-        if (!$stmt->execute()) {
-            throw new Exception($stmt->error);
-        }
-        $stmt->close();
-        $conn->commit();
+    if ($stmt->execute()) {
         header("Location: students_list.php?status=updated");
         exit();
-    } catch (Exception $e) {
-        $conn->rollback();
-        echo "<script>alert('Error updating student: " . $e->getMessage() . "'); window.location.href='students_list.php';</script>";
-        exit();
+    } else {
+        alertAndBack('❌ Error updating student: ' . addslashes($stmt->error));
     }
+    $stmt->close();
 }
 
-// Fetch Students for Display
-if (!$conn) {
-    die("Database connection failed during student list retrieval.");
-}
-$students_result = $conn->query("SELECT * FROM students ORDER BY lastname ASC");
+//
+// ------------- FETCH STUDENTS -------------
+//
+$students_result = $conn->query("SELECT * FROM students ORDER BY lastname ASC, firstname ASC");
 if (!$students_result) {
     die("Error fetching students: " . $conn->error);
 }
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="utf-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-    <title>Student List</title>
-    <link href="vendor/fontawesome-free/css/all.min.css" rel="stylesheet" type="text/css">
-    <link href="https://fonts.googleapis.com/css?family=Nunito:200,300,400,600,700,800,900" rel="stylesheet">
-    <link href="css/sb-admin-2.min.css" rel="stylesheet">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        $(document).ready(function() {
-            lucide.createIcons();
-            window.openEditModal = function(student) {
-                $('#editModal').modal('show');
-                $('#edit_id').val(student.lrn);
-                $('#edit_lrn').val(student.lrn);
-                $('#edit_lastname').val(student.lastname);
-                $('#edit_firstname').val(student.firstname);
-                $('#edit_middlename').val(student.middlename);
-                $('#edit_suffix').val(student.suffix);
-                $('#edit_age').val(student.age);
-                $('#edit_birthdate').val(student.birthdate);
-            }
-            $('#birthdate').change(function(){
-                var dob = new Date($(this).val());
-                var diff = Date.now() - dob.getTime();
-                var ageDate = new Date(diff);
-                var age = Math.abs(ageDate.getUTCFullYear() - 1970);
-                $('#age').val(age);
-            });
-            $('#edit_birthdate').change(function(){
-                var dob = new Date($(this).val());
-                var diff = Date.now() - dob.getTime();
-                var ageDate = new Date(diff);
-                var age = Math.abs(ageDate.getUTCFullYear() - 1970);
-                $('#edit_age').val(age);
-            });
-            const urlParams = new URLSearchParams(window.location.search);
-            const status = urlParams.get('status');
-            if (status) {
-                let message = "";
-                if (status === "added") {
-                    message = "Student added successfully!";
-                } else if (status === "deleted") {
-                    message = "Student deleted successfully!";
-                } else if (status === "updated") {
-                    message = "Student updated successfully!";
-                }
-                if (message) {
-                    alert(message);
-                    window.history.replaceState({}, document.title, "students_list.php");
-                }
-            }
-        });
+<meta charset="utf-8">
+<title>Student List - Management System</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@400;500&display=swap">
 
-        // Enhanced LRN validation function
-        function validateLRN(input) {
-            // Remove non-digit characters
-            input.value = input.value.replace(/\D/g, '');
-            
-            // Limit to 12 digits
-            if (input.value.length > 12) {
-                input.value = input.value.substring(0, 12);
-            }
-            
-            const errorElement = input.id === 'add_lrn' 
-                ? document.getElementById('lrn-error') 
-                : document.getElementById('edit-lrn-error');
-            
-            // Check if LRN is exactly 12 digits
-            if (input.value.length !== 12) {
-                input.setCustomValidity('LRN must be exactly 12 digits');
-                errorElement.style.display = 'block';
-                errorElement.textContent = `LRN must be exactly 12 digits (currently ${input.value.length} digits)`;
-            } else {
-                input.setCustomValidity('');
-                errorElement.style.display = 'none';
-            }
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+<style>
+
+    
+/* Add this to your existing CSS to fix the gap on the right edge */
+.container-fluid {
+    width: 100%;
+    padding: 0;
+    margin: 0;
+}
+
+/* Ensure the header section extends to full width */
+.header-section {
+    width: 100%;
+    padding: 1rem 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+    flex-wrap: wrap;
+    gap: 15px;
+    position: relative;
+}
+
+/* Ensure the body content doesn't have margins that create gaps */
+body {
+    margin: 0;
+    padding: 0;
+    font-family: 'Inter', 'Segoe UI', sans-serif;
+    background: #f6f8ff;
+    color: #1a1a1a;
+}
+
+/* Fix the container-fluid to extend full width */
+.container-fluid {
+    width: 100%;
+    padding: 0;
+    margin: 0;
+}
+
+/* Ensure the header section doesn't have padding that creates gaps */
+.header-section {
+    width: 100%;
+    padding: 1rem 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+    flex-wrap: wrap;
+    gap: 15px;
+    position: relative;
+}
+
+.header-section {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+    flex-wrap: wrap;
+    gap: 15px;
+}
+
+.search-container {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.table-card {
+    background: #fff;
+    border-radius: 16px;
+    padding: 1.5rem;
+    width: min(100%, 1200px);
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+    margin: 0 auto;
+}
+
+.table-card h2 {
+    margin: 0 0 1.5rem;
+    font-size: 1.5rem;
+    color: #111827;
+    text-align: center;
+}
+
+.table-responsive-custom {
+    overflow-x: auto;
+}
+
+.custom-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.95rem;
+}
+
+/* Add borders to table headers and cells */
+.custom-table thead th {
+    text-align: left;
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    color: #4b5563;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #e5e7eb;
+    background-color: #f9fafb;
+    border-right: 1px solid #e5e7eb;
+    border-top: 1px solid #e5e7eb;
+}
+
+/* Add borders to table data cells */
+.custom-table tbody td {
+    padding: 0.85rem 1rem;
+    border-bottom: 1px solid #f1f5f9;
+    vertical-align: middle;
+    border-right: 1px solid #f1f5f9;
+}
+
+/* Add borders to the last column header and cell */
+.custom-table thead th:last-child {
+    text-align: right;
+    border-right: 1px solid #e5e7eb;
+}
+
+/* Add borders to the last column data cell */
+.custom-table tbody td:last-child {
+    border-right: 1px solid #f1f5f9;
+}
+
+/* Remove border from the last row of data */
+.custom-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+/* Add borders to the first column header and cell */
+.custom-table thead th:first-child {
+    border-left: 1px solid #e5e7eb;
+}
+
+/* Add borders to the first column data cell */
+.custom-table tbody td:first-child {
+    border-left: 1px solid #f1f5f9;
+}
+
+/* Add border to the last column header and cell */
+.custom-table thead th:last-child {
+    border-right: 1px solid #e5e7eb;
+}
+
+/* Add border to the last column data cell */
+.custom-table tbody td:last-child {
+    border-right: 1px solid #f1f5f9;
+}
+
+/* Add border to the first column header and cell */
+.custom-table thead th:first-child {
+    border-left: 1px solid #e5e7eb;
+}
+
+/* Add border to the first column data cell */
+.custom-table tbody td:first-child {
+    border-left: 1px solid #f1f5f9;
+}
+
+/* Add border to the first row of data */
+.custom-table tbody tr:first-child td {
+    border-top: 1px solid #f1f5f9;
+}
+
+/* Add border to the first column header and cell */
+.custom-table thead th:first-child {
+    border-left: 1px solid #e5e7eb;
+}
+
+/* Add border to the first column data cell */
+.custom-table tbody td:first-child {
+    border-left: 1px solid #f1f5f9;
+}
+
+/* Add border to the last column header and cell */
+.custom-table thead th:last-child {
+    border-right: 1px solid #e5e7eb;
+}
+
+/* Add border to the last column data cell */
+.custom-table tbody td:last-child {
+    border-right: 1px solid #f1f5f9;
+}
+
+/* Add border to the first row of data */
+.custom-table tbody tr:first-child td {
+    border-top: 1px solid #f1f5f9;
+}
+
+.custom-table tbody tr:hover {
+    background: rgba(59, 130, 246, 0.06);
+}
+
+.lrn-cell {
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+
+.actions-cell {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+    min-width: 80px;
+}
+
+/* Update action icons to match the image style */
+.action-icon-btn {
+    border: none;
+    background: none;
+    padding: 0;
+    margin: 0 2px;
+    cursor: pointer;
+    transition: color 0.2s ease, opacity 0.2s ease;
+    border-radius: 50%; /* Make icons circular */
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #6c757d;
+}
+
+.action-icon-btn .material-symbols-outlined {
+    font-size: 1.1em;
+    font-variation-settings:
+        'FILL' 0,
+        'wght' 400,
+        'GRAD' 0,
+        'opsz' 24;
+}
+
+.action-icon-btn.edit-icon .material-symbols-outlined {
+    color: #1c74e4;
+}
+
+.action-icon-btn.delete-icon .material-symbols-outlined {
+    color: #dc3545;
+}
+
+.action-icon-btn:hover .material-symbols-outlined {
+    opacity: 0.7;
+}
+
+/* Add hover effect to the entire button */
+.action-icon-btn:hover {
+    background-color: #f1f5f9;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+/* Make sure the icons are properly centered */
+.action-icon-btn .material-symbols-outlined {
+    font-size: 1.1em;
+    font-variation-settings:
+        'FILL' 0,
+        'wght' 400,
+        'GRAD' 0,
+        'opsz' 24;
+}
+
+/* Add focus state for accessibility */
+.action-icon-btn:focus {
+    outline: 2px solid #1c74e4;
+    outline-offset: 2px;
+}
+
+/* Modal content styling */
+.modal-content input.form-control,
+.modal-content select.form-select {
+    border: 1px solid #ccc;
+    box-shadow: 2px 4px 8px rgba(0,0,0,0.05);
+    border-radius: 8px;
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+}
+
+.modal-content label {
+    font-weight: 500;
+    margin-bottom: 0.25rem;
+}
+
+.custom-table thead th:first-child,
+.custom-table thead th:nth-child(2) {
+    text-align: left;
+}
+
+.custom-table thead th:last-child {
+    text-align: right;
+}
+
+.profile-img-thumb {
+    width: 36px;
+    height: 36px;
+    object-fit: cover;
+    border-radius: 50%;
+    border: 1px solid #ddd;
+}
+
+.img-preview {
+    width: 120px;
+    height: 120px;
+    border-radius: 10px;
+    object-fit: cover;
+    border: 1px solid #d1d5db;
+    margin-top: 10px;
+}
+
+.clear-search {
+    background: none;
+    border: none;
+    color: #6c757d;
+    cursor: pointer;
+    font-size: 1.2rem;
+    padding: 0 5px;
+}
+
+.clear-search:hover {
+    color: #000;
+}
+
+</style>
+
+<script>
+function validateLRN(input) {
+    input.value = input.value.replace(/\D/g, '');
+    if (input.value.length !== 12) {
+        input.setCustomValidity('LRN must be exactly 12 digits');
+    } else {
+        input.setCustomValidity('');
+    }
+}
+
+function showImagePreview(input, targetId) {
+    const file = input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+        const img = document.getElementById(targetId);
+        img.src = e.target.result;
+        img.style.display = 'block';
+    };
+    reader.readAsDataURL(file);
+}
+
+function openEditModal(student) {
+    if (!student || !student.lrn) {
+        alert('❌ Invalid student data');
+        return;
+    }
+
+    $('#editModal').modal('show');
+    $('#edit_id').val(student.lrn);
+    $('#edit_lrn').val(student.lrn);
+    $('#edit_lastname').val(student.lastname || '');
+    $('#edit_firstname').val(student.firstname || '');
+    $('#edit_middlename').val(student.middlename || '');
+    $('#edit_suffix').val(student.suffix || '');
+    $('#edit_age').val(student.age || '');
+
+    if (student.birthdate) {
+        const parts = student.birthdate.split("-");
+        if (parts.length === 3) {
+            $('#edit_birthdate').val(parts[2] + '-' + parts[1] + '-' + parts[0]);
+        } else {
+            $('#edit_birthdate').val(student.birthdate);
         }
+    } else {
+        $('#edit_birthdate').val('');
+    }
 
-        // Enhanced form validation
-        document.addEventListener('DOMContentLoaded', function() {
-            const addForm = document.querySelector('#addStudentModal form');
-            const editForm = document.querySelector('#editModal form');
+    if (student.profile_image) {
+        $('#existing_profile').val(student.profile_image);
+        $('#currentImage').attr('src', 'uploads/' + student.profile_image).show();
+        $('#removeImageBtn').show();
+    } else {
+        $('#existing_profile').val('');
+        $('#currentImage').hide();
+        $('#removeImageBtn').hide();
+    }
+    $('#edit_profile_image').val('');
+    $('#editImagePreview').hide();
+}
 
-            if (addForm) {
-                addForm.addEventListener('submit', function(event) {
-                    const lrnInput = document.getElementById('add_lrn');
-                    if (lrnInput.value.length !== 12 || !/^\d{12}$/.test(lrnInput.value)) {
-                        event.preventDefault();
-                        lrnInput.focus();
-                        document.getElementById('lrn-error').style.display = 'block';
-                        document.getElementById('lrn-error').textContent = 'LRN must be exactly 12 digits';
-                        return false;
-                    }
-                });
-            }
+// Live search functionality
+$(document).ready(function() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const status = urlParams.get('status');
 
-            if (editForm) {
-                editForm.addEventListener('submit', function(event) {
-                    const lrnInput = document.getElementById('edit_lrn');
-                    if (lrnInput.value.length !== 12 || !/^\d{12}$/.test(lrnInput.value)) {
-                        event.preventDefault();
-                        lrnInput.focus();
-                        document.getElementById('edit-lrn-error').style.display = 'block';
-                        document.getElementById('edit-lrn-error').textContent = 'LRN must be exactly 12 digits';
-                        return false;
-                    }
-                });
-            }
+    if (status) {
+        const messages = {
+            'added': '✓ Student added successfully!',
+            'deleted': '✓ Student deleted successfully!',
+            'updated': '✓ Student updated successfully!',
+            'imported': '✓ Students imported successfully!'
+        };
+
+        if (messages[status]) {
+            alert(messages[status]);
+            window.history.replaceState({}, document.title, 'students_list.php');
+        }
+    }
+
+    $('#csvfile').on('change', function() {
+        const fileName = $(this).val().split('\\').pop();
+        $('#csvFileName').text(fileName || 'No file chosen');
+    });
+
+    $('#profile_image').on('change', function() {
+        showImagePreview(this, 'imagePreview');
+    });
+
+    $('#edit_profile_image').on('change', function() {
+        showImagePreview(this, 'editImagePreview');
+        $('#removeImageBtn').show();
+    });
+
+    $('#removeImageBtn').on('click', function() {
+        $('#existing_profile').val('');
+        $('#currentImage').hide();
+        $('#editImagePreview').hide();
+        $('#edit_profile_image').val('');
+        $(this).hide();
+    });
+
+    // Search functionality
+    $('#searchInput').on('keyup', function() {
+        const value = $(this).val().toLowerCase();
+        $('.custom-table tbody tr').filter(function() {
+            $(this).toggle($(this).text().toLowerCase().indexOf(value) > -1);
         });
-    </script>
+    });
+
+    // Clear search button
+    $('#clearSearch').on('click', function() {
+        $('#searchInput').val('').trigger('keyup');
+        $(this).hide();
+    });
+
+    // Show clear button when typing
+    $('#searchInput').on('input', function() {
+        $('#clearSearch').toggle($(this).val().length > 0);
+    });
+});
+</script>
 </head>
-<body id="page-top">
-    <?php include 'nav.php'; ?>
-    <div id="wrapper">
-        <div id="content-wrapper" class="d-flex flex-column">
-            <div id="content">
-                <div class="container-fluid">
-                    <div class="d-flex justify-content-between align-items-center mb-4">
-                        <h2 class="h3 mb-0 text-gray-800">STUDENTS DASHBOARD</h2>
-                        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addStudentModal" style="box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
-                            Add Student
-                        </button>
-                    </div>
-                    <div class="bg-gray-50 rounded-xl p-4 shadow-md">
-                        <div class="bg-gray-100 rounded-xl p-5 shadow-md">
-                            <div class="overflow-x-auto">
-                                <table class="w-full table-auto border border-gray-300 text-sm text-center">
-                                    <thead class="bg-gray-200 font-semibold">
-                                        <tr>
-                                            <th class="border px-3 py-2">No.</th>
-                                            <th class="border px-3 py-2">LRN</th>
-                                            <th class="border px-3 py-2">Lastname</th>
-                                            <th class="border px-3 py-2">Firstname</th>
-                                            <th class="border px-3 py-2">Middlename</th>
-                                            <th class="border px-3 py-2">Suffix</th>
-                                            <th class="border px-3 py-2">Age</th>
-                                            <th class="border px-3 py-2">Birthdate</th>
-                                            <th class="border px-3 py-2">Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <?php
-                                        $counter = 1;
-                                        while ($row = $students_result->fetch_assoc()): ?>
-                                            <tr class="hover:bg-gray-50">
-                                                <td class="border px-3 py-2"><?= $counter++ ?></td>
-                                                <td class="border px-3 py-2"><?= htmlspecialchars($row['lrn'] ?? '') ?></td>
-                                                <td class="border px-3 py-2"><?= htmlspecialchars($row['lastname'] ?? '') ?></td>
-                                                <td class="border px-3 py-2"><?= htmlspecialchars($row['firstname'] ?? '') ?></td>
-                                                <td class="border px-3 py-2"><?= htmlspecialchars($row['middlename'] ?? '') ?></td>
-                                                <td class="border px-3 py-2"><?= htmlspecialchars($row['suffix'] ?? '') ?></td>
-                                                <td class="border px-3 py-2"><?= htmlspecialchars($row['age'] ?? '') ?></td>
-                                                <td class="border px-3 py-2"><?= htmlspecialchars($row['birthdate'] ?? '') ?></td>
-                                                <td class="border px-3 py-2 space-x-2">
-                                                    <button onclick='openEditModal(<?= json_encode($row) ?>)' class="text-blue-600 hover:text-blue-800 p-1 rounded">
-                                                        <i data-lucide="pencil" class="w-5 h-5 inline"></i>
-                                                    </button>
-                                                    <form method="POST" class="inline" onsubmit="return confirm('Are you sure you want to delete <?= htmlspecialchars($row['firstname'] .' '. $row['lastname']) ?>?');">
-                                                        <input type="hidden" name="student_lrn" value="<?= htmlspecialchars($row['lrn'] ?? '') ?>" />
-                                                        <button type="submit" name="delete_student" class="text-red-600 hover:text-red-800 p-1 rounded">
-                                                            <i data-lucide="trash" class="w-5 h-5 inline"></i>
-                                                        </button>
-                                                    </form>
-                                                </td>
-                                            </tr>
-                                        <?php endwhile; ?>
-                                        <?php if ($students_result->num_rows === 0): ?>
-                                            <tr>
-                                                <td colspan="9" class="border px-3 py-2 text-center text-gray-500">No students found.</td>
-                                            </tr>
-                                        <?php endif; ?>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+
+<body>
+<?php include 'nav.php'; ?>
+
+<div class="container-fluid mt-4 mb-5">
+    <div class="header-section">
+        <div style="display: flex; align-items: center;">
+            <img src="img/depedlogo.jpg" alt="Dashboard Logo" style="width: 50px; height: 50px; margin-right: 10px;">
+            <h2 class="h3 mb-0 text-gray-800">Student Dashboard</h2>
         </div>
+        <div class="search-container">
+    <div class="input-group" style="width: 250px; position: relative;">
+        <input type="text" id="searchInput" class="form-control" placeholder="Search Student">
+        <span class="search-icon" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: #6c757d; pointer-events: none; z-index: 2;">
+            <span class="material-symbols-outlined" style="font-size: 1.2em;">search</span>
+        </span>
+        <button class="clear-search" id="clearSearch" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; color: #6c757d; cursor: pointer; display:none; z-index: 3;">×</button>
+    </div>
+    <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#importModal" style="box-shadow: 0 4px 8px rgba(0,0,0,0.1); border-radius: 8px;">
+        <span class="material-symbols-outlined" style="font-size: 1.2em; vertical-align: middle;">upload_file</span> Import CSV
+    </button>
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addStudentModal" style="box-shadow: 0 4px 8px rgba(0,0,0,0.1); border-radius: 8px;">
+        <span class="material-symbols-outlined" style="font-size: 1.2em; vertical-align: middle;">person_add</span> Add Student
+    </button>
+</div>
     </div>
 
-    <!-- Add Student Modal -->
-    <div class="modal fade" id="addStudentModal" tabindex="-1" aria-labelledby="addStudentModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content" style="position: relative;">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="addStudentModalLabel">Add Student Information</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
+    <div class="table-card">
+        <div class="table-responsive-custom">
+            <table class="custom-table">
+                <thead>
+                    <tr>
+                        <th style="width: 5%;">#</th>
+                        <th style="width: 15%;">LRN</th>
+                        <th style="width: 8%;">Photo</th>
+                        <th style="width: 12%;">Lastname</th>
+                        <th style="width: 12%;">Firstname</th>
+                        <th style="width: 12%;">Middlename</th>
+                        <th style="width: 8%;">Suffix</th>
+                        <th style="width: 8%;">Age</th>
+                        <th style="width: 12%;">Birthdate</th>
+                        <th style="width: 8%; text-align:right;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                <?php
+                $count = 1;
+                if ($students_result->num_rows > 0):
+                    while ($row = $students_result->fetch_assoc()):
+                        $display_date = '';
+                        if (!empty($row['birthdate'])) {
+                            $parts = explode("-", $row['birthdate']);
+                            if (count($parts) === 3) {
+                                $display_date = "{$parts[2]}-{$parts[1]}-{$parts[0]}";
+                            }
+                        }
+                ?>
+                    <tr>
+                        <td><?= $count++ ?></td>
+                        <td class="lrn-cell"><?= htmlspecialchars($row['lrn']) ?></td>
+                        <td>
+                            <?php if (!empty($row['profile_image']) && file_exists(STUDENT_UPLOAD_DIR . $row['profile_image'])): ?>
+                                <img src="uploads/<?= htmlspecialchars($row['profile_image']) ?>" class="profile-img-thumb" alt="Profile">
+                            <?php else: ?>
+                                <span class="material-symbols-outlined" style="font-size: 1.4rem; color: #9ca3af;">account_circle</span>
+                            <?php endif; ?>
+                        </td>
+                        <td><?= htmlspecialchars($row['lastname']) ?></td>
+                        <td><?= htmlspecialchars($row['firstname']) ?></td>
+                        <td><?= htmlspecialchars($row['middlename'] ?? '-') ?></td>
+                        <td><?= htmlspecialchars($row['suffix'] ?? '-') ?></td>
+                        <td><?= htmlspecialchars($row['age']) ?></td>
+                        <td><?= $display_date ?></td>
+                        <td class="actions-cell">
+                            <button type="button" class="action-icon-btn edit-icon" onclick='openEditModal(<?= htmlspecialchars(json_encode($row), ENT_QUOTES, 'UTF-8') ?>)' title="Edit">
+                                <span class="material-symbols-outlined">edit</span>
+                            </button>
+
+                            <form method="POST" class="d-inline" onsubmit="return confirm('Are you sure you want to delete student <?= htmlspecialchars($row['firstname'] . ' ' . $row['lastname']) ?>?');">
+                                <input type="hidden" name="student_lrn" value="<?= htmlspecialchars($row['lrn']) ?>">
+                                <button type="submit" name="delete_student" class="action-icon-btn delete-icon" title="Delete">
+                                    <span class="material-symbols-outlined">delete</span>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                <?php
+                    endwhile;
+                else:
+                    echo '<tr><td colspan="10" class="text-center text-muted py-4">No students found.</td></tr>';
+                endif;
+                ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- IMPORT MODAL -->
+<div class="modal fade" id="importModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title">📥 Import Students from CSV</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" enctype="multipart/form-data">
                 <div class="modal-body">
-                    <div class="container mt-3">
-                        <div class="row justify-content-center">
-                            <div class="col-md-10">
-                                <div class="card p-4 shadow-sm" style="border-radius: 20px; background-color: rgba(255,255,255,0.9);">
-                                    <img src="images/you.png" width="100" height="100" alt="" class="rounded-circle mx-auto d-block"><br>
-                                    <h3 class="text-center">ADD STUDENT</h3><br>
-                                    <form method="post">
-                                        <div class="mb-3">
-                                            <input type="text" 
-                                                   class="form-control" 
-                                                   name="lrn" 
-                                                   id="add_lrn" 
-                                                   placeholder="Enter LRN (12 digits)" 
-                                                   required 
-                                                   maxlength="12" 
-                                                   pattern="\d{12}" 
-                                                   style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center; font-family: 'Courier New', monospace; font-size: 16px; letter-spacing: 1px;"
-                                                   oninput="validateLRN(this)"
-                                                   title="LRN must be exactly 12 digits"
-                                                   autocomplete="off"
-                                            >
-                                            <small class="text-danger" id="lrn-error" style="display:none;">LRN must be exactly 12 digits</small>
-                                        </div>
-                                        <div class="mb-3">
-                                            <input type="text" class="form-control" name="lastname" placeholder="Enter Last Name" required style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
-                                        </div>
-                                        <div class="mb-3">
-                                            <input type="text" class="form-control" name="firstname" placeholder="Enter First Name" required style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
-                                        </div>
-                                        <div class="mb-3">
-                                            <input type="text" class="form-control" name="middlename" placeholder="Enter Middle Name" style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
-                                        </div>
-                                        <div class="mb-3">
-                                            <input type="text" class="form-control" name="suffix" placeholder="Enter Suffix (Jr., III, etc.)" style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
-                                        </div>
-                                        <div class="mb-3">
-                                            <input type="number" class="form-control" id="age" name="age" placeholder="Student Age" required style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
-                                        </div>
-                                        <div class="mb-3">
-                                            <input type="date" class="form-control" id="birthdate" name="birthdate" placeholder="Enter Birthdate" required style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
-                                        </div>
-                                        <div class="text-center">
-                                            <button type="submit" name="add_student" class="btn btn-primary px-4">Register Student</button>
-                                        </div>
-                                    </form>
-                                </div>
-                            </div>
-                        </div>
+                    <div class="mb-3">
+                        <label class="form-label"><strong>Select CSV File</strong></label>
+                        <input type="file" name="csvfile" class="form-control" accept=".csv" required>
+                        <small class="text-muted">Maximum 5MB | Format: CSV</small>
+                    </div>
+
+                    <div class="alert alert-info">
+                        <strong>📋 CSV Format Required:</strong>
+                        <pre style="font-size: 12px; margin-top: 10px;">LRN,Lastname,Firstname,Middlename,Suffix,Age,Birthdate</pre>
                     </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="submit" name="import_csv" class="btn btn-success">
+                        <span class="material-symbols-outlined" style="font-size: 1.2em; vertical-align: middle;">cloud_upload</span> Upload & Import
+                    </button>
                 </div>
-            </div>
+            </form>
         </div>
     </div>
+</div>
 
-    <!-- Edit Student Modal -->
-    <div class="modal fade" id="editModal" tabindex="-1" aria-labelledby="editModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content" style="position: relative;">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="editModalLabel">Edit Student Information</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
+<!-- ADD STUDENT MODAL -->
+<div class="modal fade" id="addStudentModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title">➕ Add New Student</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" enctype="multipart/form-data">
                 <div class="modal-body">
-                    <div class="container mt-3">
-                        <div class="row justify-content-center">
-                            <div class="col-md-10">
-                                <div class="card p-4 shadow-sm" style="border-radius: 20px; background-color: rgba(255,255,255,0.9);">
-                                    <img src="images/you.png" width="100" height="100" alt="" class="rounded-circle mx-auto d-block"><br>
-                                    <h3 class="text-center">EDIT STUDENT</h3><br>
-                                    <form method="post">
-                                        <input type="hidden" id="edit_id" name="edit_id">
-                                        <div class="mb-3">
-                                            <input type="text" 
-                                                   class="form-control" 
-                                                   id="edit_lrn" 
-                                                   name="edit_lrn" 
-                                                   placeholder="Enter LRN (12 digits)" 
-                                                   required 
-                                                   maxlength="12" 
-                                                   pattern="\d{12}" 
-                                                   style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center; font-family: 'Courier New', monospace; font-size: 16px; letter-spacing: 1px;"
-                                                   oninput="validateLRN(this)"
-                                                   title="LRN must be exactly 12 digits"
-                                                   autocomplete="off"
-                                            >
-                                            <small class="text-danger" id="edit-lrn-error" style="display:none;">LRN must be exactly 12 digits</small>
-                                        </div>
-                                        <div class="mb-3">
-                                            <input type="text" class="form-control" id="edit_lastname" name="edit_lastname" placeholder="Enter Last Name" required style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
-                                        </div>
-                                        <div class="mb-3">
-                                            <input type="text" class="form-control" id="edit_firstname" name="edit_firstname" placeholder="Enter First Name" required style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
-                                        </div>
-                                        <div class="mb-3">
-                                            <input type="text" class="form-control" id="edit_middlename" name="edit_middlename" placeholder="Enter Middle Name" style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
-                                        </div>
-                                        <div class="mb-3">
-                                            <input type="text" class="form-control" id="edit_suffix" name="edit_suffix" placeholder="Enter Suffix (Jr., III, etc.)" style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
-                                        </div>
-                                        <div class="mb-3">
-                                            <input type="number" class="form-control" id="edit_age" name="edit_age" placeholder="Enter Age" required style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
-                                        </div>
-                                        <div class="mb-3">
-                                            <input type="date" class="form-control" id="edit_birthdate" name="edit_birthdate" placeholder="Enter Birthdate" required style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
-                                        </div>
-                                        <div class="text-center">
-                                            <button type="submit" name="edit_student" class="btn btn-primary px-4">Update Student</button>
-                                        </div>
-                                    </form>
-                                </div>
-                            </div>
-                        </div>
+                    <div class="mb-3">
+                        <label class="form-label">LRN (12 digits) *</label>
+                        <input type="text" name="lrn" class="form-control" maxlength="12" oninput="validateLRN(this)" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Firstname *</label>
+                        <input type="text" name="firstname" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Lastname *</label>
+                        <input type="text" name="lastname" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Middlename</label>
+                        <input type="text" name="middlename" class="form-control">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Suffix</label>
+                        <input type="text" name="suffix" class="form-control" placeholder="Jr., Sr.">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Age *</label>
+                        <input type="number" name="age" class="form-control" min="0" max="120" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Birthdate (DD-MM-YYYY) *</label>
+                        <input type="text" name="birthdate" class="form-control" placeholder="DD-MM-YYYY" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Profile Image</label>
+                        <input type="file" name="profile_image" id="profile_image" class="form-control" accept="image/jpeg,image/png,image/gif">
+                        <small class="text-muted">Max 2MB | JPG / PNG / GIF</small>
+                        <img id="imagePreview" class="img-preview" style="display:none;">
                     </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="submit" name="add_student" class="btn btn-primary">Add Student</button>
                 </div>
-            </div>
+            </form>
         </div>
     </div>
+</div>
 
-    <!-- Footer -->
-    <br>
-    <footer class="sticky-footer bg-white">
-        <div class="container my-auto">
-            <div class="copyright text-center my-auto">
-                <span>&copy; Your Website 07/2025</span>
+<!-- EDIT MODAL -->
+<div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title">✎ Edit Student</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
+            <form method="post" enctype="multipart/form-data">
+                <div class="modal-body">
+                    <input type="hidden" id="edit_id" name="edit_id">
+                    <input type="hidden" id="existing_profile" name="existing_profile">
+
+                    <div class="mb-3">
+                        <label class="form-label">LRN *</label>
+                        <input type="text" id="edit_lrn" name="edit_lrn" class="form-control" maxlength="12" oninput="validateLRN(this)" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Firstname *</label>
+                        <input type="text" id="edit_firstname" name="edit_firstname" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Lastname *</label>
+                        <input type="text" id="edit_lastname" name="edit_lastname" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Middlename</label>
+                        <input type="text" id="edit_middlename" name="edit_middlename" class="form-control">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Suffix</label>
+                        <input type="text" id="edit_suffix" name="edit_suffix" class="form-control">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Age *</label>
+                        <input type="number" id="edit_age" name="edit_age" class="form-control" min="0" max="120" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Birthdate (DD-MM-YYYY) *</label>
+                        <input type="text" id="edit_birthdate" name="edit_birthdate" class="form-control" placeholder="DD-MM-YYYY" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Profile Image</label>
+                        <input type="file" name="edit_profile_image" id="edit_profile_image" class="form-control" accept="image/jpeg,image/png,image/gif">
+                        <small class="text-muted">Upload to replace current photo.</small>
+                        <img id="currentImage" class="img-preview" style="display:none;">
+                        <img id="editImagePreview" class="img-preview" style="display:none;">
+                        <button type="button" id="removeImageBtn" class="btn btn-sm btn-danger mt-2" style="display:none;">Remove Image</button>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="submit" name="edit_student" class="btn btn-primary">Update Student</button>
+                </div>
+            </form>
         </div>
-    </footer>
-    <a class="scroll-to-top rounded" href="#page-top">
-        <i class="fas fa-angle-up"></i>
-    </a>
+    </div>
+</div>
+
 </body>
 </html>

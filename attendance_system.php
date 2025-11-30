@@ -39,8 +39,8 @@ function sendSMS($studentName, $actionType, $time, $phone)
     }
     
     $parameters = array(
-        'apikey' => '', // Your API KEY
-        'number' => $phone, // Use dynamic guardian phone number
+        'apikey' => '', 
+        'number' => $phone, 
         'message' => $message,
         'sendername' => 'RNCTLCI'
     );
