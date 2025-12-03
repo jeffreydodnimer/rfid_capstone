@@ -50,18 +50,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['link_rfid'])) {
 
     $conn->begin_transaction();
     try {
-        // Ensure student exists
-        $check_stmt = $conn->prepare("SELECT lrn FROM students WHERE lrn = ?");
-        if ($check_stmt === false) {
-            throw new Exception("Error preparing check statement: " . $conn->error);
-        }
-        $check_stmt->bind_param("s", $lrn);
-        $check_stmt->execute();
-        $check_result = $check_stmt->get_result();
-        if ($check_result->num_rows === 0) {
-            throw new Exception("Student with LRN $lrn does not exist.");
-        }
-        $check_stmt->close();
+   // Ensure student exists
+$stmt = $conn->prepare("SELECT lrn FROM students WHERE lrn = ?");
+if ($stmt === false) {
+    throw new Exception("Error preparing check statement: " . $conn->error);
+}
+$stmt->bind_param("s", $lrn);
+$stmt->execute();
+$check_result = $stmt->get_result();
+if ($check_result->num_rows === 0) {
+    throw new Exception("Student with LRN \$lrn does not exist.");
+}
+$stmt->close();
 
         // Check if the RFID number is already registered
         $check_rfid_stmt = $conn->prepare("SELECT rfid_number FROM rfid WHERE rfid_number = ?");
@@ -642,110 +642,122 @@ if (!$students_result) {
       </div><!-- content-wrapper -->
     </div><!-- wrapper -->
 
-    <!-- Add RFID Modal -->
-    <div class="modal fade" id="addRfidModal" tabindex="-1" aria-labelledby="addRfidModalLabel" aria-hidden="true">
-      <div class="modal-dialog modal-lg">
-        <div class="modal-content" style="position: relative;">
-          <div class="modal-header">
-            <h5 class="modal-title" id="addRfidModalLabel">Link RFID to Student</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-          </div>
-          <div class="modal-body">
-            <div class="container mt-3">
-              <div class="row justify-content-center">
-                <div class="col-md-10">
-                  <div class="card p-4 shadow-sm" style="border-radius: 20px; background-color: rgba(255,255,255,0.9);">
-                    <img src="images/rfid.png" width="100" height="100" alt="RFID" class="rounded-circle mx-auto d-block"><br>
-                    <h3 class="text-center">LINK RFID</h3><br>
-                    <form method="post">
-                      <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
-                      <div class="mb-3">
-                        <input type="text" class="form-control" name="rfid_number" placeholder="Enter RFID Number" required
-                               style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
-                      </div>
-                      <div class="mb-3">
-                        <select class="form-control" name="lrn" required
-                               style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
-                          <option value="">Select Student (LRN)</option>
-                          <?php 
-                          $students_result->data_seek(0);
-                          while ($student = $students_result->fetch_assoc()):
-                              $student_name = trim($student['lastname'] . ', ' . $student['firstname'] . ' ' . $student['middlename']);
-                          ?>
-                          <option value="<?= htmlspecialchars($student['lrn']) ?>">
-                            <?= htmlspecialchars($student['lrn'] . ' - ' . $student_name) ?>
-                          </option>
-                          <?php endwhile; ?>
-                        </select>
-                      </div>
-                      <div class="text-center">
-                        <button type="submit" name="link_rfid" class="btn btn-primary px-4">Link RFID</button>
-                      </div>
-                    </form>
+<!-- Add RFID Modal -->
+<div class="modal fade" id="addRfidModal" tabindex="-1" aria-labelledby="addRfidModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content" style="position: relative;">
+      <div class="modal-header">
+        <h5 class="modal-title" id="addRfidModalLabel">Link RFID to Student</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="container mt-3">
+          <div class="row justify-content-center">
+            <div class="col-md-10">
+              <div class="card p-4 shadow-sm" style="border-radius: 20px; background-color: rgba(255,255,255,0.9);">
+                <img src="images/rfid.png" width="100" height="100" alt="RFID" class="rounded-circle mx-auto d-block"><br>
+                <h3 class="text-center">LINK RFID</h3><br>
+                <form method="post">
+                  <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+                  
+                  <!-- RFID Number Field -->
+                  <div class="mb-3">
+                    <label for="rfid_number" class="form-label text-center d-block">RFID Number</label>
+                    <input type="text" 
+                           class="form-control" 
+                           id="rfid_number"
+                           name="rfid_number" 
+                           placeholder="Scan or Enter RFID Number" 
+                           required
+                           style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
                   </div>
-                </div>
+                  
+                  <!-- LRN Text Input Field (replaced select) -->
+                  <div class="mb-3">
+                    <label for="lrn_input" class="form-label text-center d-block">Student LRN</label>
+                    <input type="text" 
+                           class="form-control" 
+                           id="lrn_input"
+                           name="lrn" 
+                           placeholder="Enter Student LRN" 
+                           required
+                           style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
+                  </div>
+                  
+                  <div class="text-center">
+                    <button type="submit" name="link_rfid" class="btn btn-primary px-4">Link RFID</button>
+                  </div>
+                </form>
               </div>
             </div>
           </div>
-          <div class="modal-footer">
-             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-          </div>
         </div>
       </div>
+      <div class="modal-footer">
+         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
     </div>
+  </div>
+</div>
 
-    <!-- Edit RFID Modal -->
-    <div class="modal fade" id="editModal" tabindex="-1" aria-labelledby="editModalLabel" aria-hidden="true">
-      <div class="modal-dialog modal-lg">
-        <div class="modal-content" style="position: relative;">
-          <div class="modal-header">
-            <h5 class="modal-title" id="editModalLabel">Edit RFID Information</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-          </div>
-          <div class="modal-body">
-            <div class="container mt-3">
-              <div class="row justify-content-center">
-                <div class="col-md-10">
-                  <div class="card p-4 shadow-sm" style="border-radius: 20px; background-color: rgba(255,255,255,0.9);">
-                    <img src="images/rfid.png" width="100" height="100" alt="RFID" class="rounded-circle mx-auto d-block"><br>
-                    <h3 class="text-center">EDIT RFID</h3><br>
-                    <form method="post">
-                      <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
-                      <input type="hidden" id="original_rfid" name="original_rfid">
-                      <div class="mb-3">
-                        <input type="text" class="form-control" id="edit_rfid_number" name="edit_rfid_number" placeholder="Enter RFID Number" required
-                               style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
-                      </div>
-                      <div class="mb-3">
-                        <select class="form-control" id="edit_lrn" name="edit_lrn" required
-                               style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
-                          <option value="">Select Student (LRN)</option>
-                          <?php 
-                          $students_result->data_seek(0);
-                          while ($student = $students_result->fetch_assoc()):
-                              $student_name = trim($student['lastname'] . ', ' . $student['firstname'] . ' ' . $student['middlename']);
-                          ?>
-                          <option value="<?= htmlspecialchars($student['lrn']) ?>">
-                            <?= htmlspecialchars($student['lrn'] . ' - ' . $student_name) ?>
-                          </option>
-                          <?php endwhile; ?>
-                        </select>
-                      </div>
-                      <div class="text-center">
-                        <button type="submit" name="update_rfid" class="btn btn-primary px-4">Update RFID</button>
-                      </div>
-                    </form>
+<!-- Edit RFID Modal -->
+<div class="modal fade" id="editModal" tabindex="-1" aria-labelledby="editModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content" style="position: relative;">
+      <div class="modal-header">
+        <h5 class="modal-title" id="editModalLabel">Edit RFID Information</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="container mt-3">
+          <div class="row justify-content-center">
+            <div class="col-md-10">
+              <div class="card p-4 shadow-sm" style="border-radius: 20px; background-color: rgba(255,255,255,0.9);">
+                <img src="images/rfid.png" width="100" height="100" alt="RFID" class="rounded-circle mx-auto d-block"><br>
+                <h3 class="text-center">EDIT RFID</h3><br>
+                <form method="post">
+                  <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+                  <input type="hidden" id="original_rfid" name="original_rfid">
+                  
+                  <!-- RFID Number Field -->
+                  <div class="mb-3">
+                    <label for="edit_rfid_number" class="form-label text-center d-block">RFID Number</label>
+                    <input type="text" 
+                           class="form-control" 
+                           id="edit_rfid_number"
+                           name="edit_rfid_number" 
+                           placeholder="Enter RFID Number" 
+                           required
+                           style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
                   </div>
-                </div>
+                  
+                  <!-- LRN Text Input Field (replaced select) -->
+                  <div class="mb-3">
+                    <label for="edit_lrn_input" class="form-label text-center d-block">Student LRN</label>
+                    <input type="text" 
+                           class="form-control" 
+                           id="edit_lrn_input"
+                           name="edit_lrn" 
+                           placeholder="Enter Student LRN" 
+                           required
+                           style="border: 1px solid #ccc; box-shadow: 2px 4px 8px rgba(0,0,0,0.1); border-radius: 15px; text-align: center;">
+                  </div>
+                  
+                  <div class="text-center">
+                    <button type="submit" name="update_rfid" class="btn btn-primary px-4">Update RFID</button>
+                  </div>
+                </form>
               </div>
             </div>
           </div>
-          <div class="modal-footer">
-             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-          </div>
         </div>
       </div>
+      <div class="modal-footer">
+         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
     </div>
+  </div>
+</div>
 
     <!-- Import RFID CSV Modal -->
     <div class="modal fade" id="importModal" tabindex="-1" aria-labelledby="importModalLabel" aria-hidden="true">

@@ -14,15 +14,22 @@ if (!isset($conn) || $conn->connect_error) {
     die("Database connection failed: " . ($conn->connect_error ?? "Unknown error"));
 }
 
-// Set timezone and define current school year, matching the attendance system
+// Set timezone
 date_default_timezone_set('Asia/Manila');
-$current_school_year = '2024-2025'; // Match this with your attendance system
 $current_date = date('Y-m-d');
 
-// --- Corrected Logic ---
-// 1. Fetch total students ENROLLED in the current school year (matches attendance system logic)
+// --- UPDATED LOGIC: Dynamic School Year ---
+$currentMonth = (int)date('m');
+$currentYear = (int)date('Y');
+if ($currentMonth >= 8) {
+    $current_school_year = $currentYear . '-' . ($currentYear + 1);
+} else {
+    $current_school_year = ($currentYear - 1) . '-' . $currentYear;
+}
+
+// 1. Fetch total students ENROLLED in the current school year
 $totalStudents = 0;
-$stmt = $conn->prepare("SELECT COUNT(*) AS total_students FROM enrollments WHERE school_year = ?");
+$stmt = $conn->prepare("SELECT COUNT(DISTINCT lrn) AS total_students FROM enrollments WHERE school_year = ?");
 $stmt->bind_param("s", $current_school_year);
 $stmt->execute();
 $result = $stmt->get_result();
@@ -31,8 +38,7 @@ if ($result) {
 }
 $stmt->close();
 
-
-// 2. Fetch present students today (Correctly including 'present' AND 'late' status)
+// 2. Fetch present students today (present + late)
 $presentToday = 0;
 $stmt = $conn->prepare("SELECT COUNT(*) AS present_today FROM attendance WHERE date = ? AND status IN ('present', 'late')");
 $stmt->bind_param("s", $current_date);
@@ -43,19 +49,16 @@ if ($result) {
 }
 $stmt->close();
 
-
-// Calculate absent and rates based on corrected numbers
+// Calculate absent and rates
 $absentToday = $totalStudents - $presentToday;
 $attendanceRate = $totalStudents > 0 ? round(($presentToday / $totalStudents) * 100, 1) : 0;
 $absenceRate = $totalStudents > 0 ? round(($absentToday / $totalStudents) * 100, 1) : 0;
 
-
-// 3. Prepare data for attendance overview chart (also using corrected logic)
+// 3. Prepare data for attendance overview chart
 $weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 $attendanceOverview = [];
 
 foreach ($weekdays as $day) {
-    // Find the last recorded date for this weekday
     $stmtDate = $conn->prepare("SELECT MAX(date) AS last_date FROM attendance WHERE DAYNAME(date) = ?");
     $stmtDate->bind_param("s", $day);
     $stmtDate->execute();
@@ -64,14 +67,13 @@ foreach ($weekdays as $day) {
     $stmtDate->close();
 
     if ($lastDate) {
-        // Count present and late for that day to get the correct percentage
         $stmtPresent = $conn->prepare("SELECT COUNT(*) AS present_count FROM attendance WHERE date = ? AND status IN ('present', 'late')");
         $stmtPresent->bind_param("s", $lastDate);
         $stmtPresent->execute();
         $resPresent = $stmtPresent->get_result();
         $presentCount = ($resPresent) ? $resPresent->fetch_assoc()['present_count'] : 0;
         $stmtPresent->close();
-        
+
         $percent = $totalStudents > 0 ? round(($presentCount / $totalStudents) * 100, 1) : 0;
 
         $attendanceOverview[$day] = [
@@ -90,6 +92,7 @@ foreach ($weekdays as $day) {
 
 $conn->close();
 ?>
+
 
 <!DOCTYPE html>
 <html lang="en">

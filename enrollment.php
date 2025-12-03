@@ -29,7 +29,7 @@ if (!isset($_SESSION['csrf_token'])) {
 function validate_csrf_token() {
     if (isset($_POST['csrf_token']) && !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'] ?? '')) {
         error_log(date('c') . " CSRF Attack Detected: " . $_SERVER['REMOTE_ADDR'] . "\n", 3, 'logs/enrollment_errors.txt');
-        echo "<script>alert('Invalid security token. Please try again.'); location='enrollment.php';</script>";
+        echo "<script>alert('Invalid security token. Please try again.'); window.location.href='enrollment.php';</script>";
         exit;
     }
 }
@@ -86,7 +86,7 @@ $sections_query = "
         s.section_name,
         s.grade_level,
         s.adviser_id,
-        CONCAT_WS(' ', 
+        CONCAT_WS(' ',
             adv.firstname,
             CASE WHEN adv.middlename IS NOT NULL AND adv.middlename != '' THEN CONCAT(LEFT(adv.middlename, 1),'.') ELSE NULL END,
             adv.lastname,
@@ -154,14 +154,20 @@ if (isset($_POST['add_enrollment'])) {
             throw new Exception("This student is already enrolled for the specified school year.");
         }
         $stmt->close();
-
-        // Insert enrollment
-        $stmt = $conn->prepare("INSERT INTO enrollments (lrn, grade_level, section_id, school_year) VALUES (?, ?, ?, ?)");
-        $stmt->bind_param("ssis", $lrn, $grade_level, $section_id, $school_year);
-        if (!$stmt->execute()) {
+        // Inside the "Add Enrollment" handler
+$stmt = $conn->prepare("INSERT INTO enrollments (lrn, grade_level, section_id, school_year) VALUES (?, ?, ?, ?)");
+$stmt->bind_param("ssis", $lrn, $grade_level, $section_id, $school_year);
+$stmt->execute(); {
             throw new Exception("Failed to add enrollment: " . $stmt->error);
         }
         $stmt->close();
+
+        // Reset AUTO_INCREMENT to continue from last used ID
+        $max_id = $conn->query("SELECT MAX(enrollment_id) AS max_id FROM enrollments")->fetch_assoc()['max_id'];
+        if ($max_id === null) {
+            $max_id = 0;
+        }
+        $conn->query("ALTER TABLE enrollments AUTO_INCREMENT = " . ($max_id + 1));
 
         $conn->commit();
         echo "<script>alert('Enrollment added successfully!'); window.location.href='enrollment.php?status=added';</script>";
@@ -192,6 +198,14 @@ if (isset($_POST['delete_enrollment'])) {
             throw new Exception("Failed to delete enrollment: " . $stmt->error);
         }
         $stmt->close();
+
+        // Reset AUTO_INCREMENT to continue from last used ID
+        $max_id = $conn->query("SELECT MAX(enrollment_id) AS max_id FROM enrollments")->fetch_assoc()['max_id'];
+        if ($max_id === null) {
+            $max_id = 0;
+        }
+        $conn->query("ALTER TABLE enrollments AUTO_INCREMENT = " . ($max_id + 1));
+
         $conn->commit();
         echo "<script>alert('Enrollment deleted successfully!'); window.location.href='enrollment.php?status=deleted';</script>";
         exit();
@@ -287,16 +301,16 @@ if (isset($_POST['import_enrollments_csv']) && isset($_FILES['enrollment_csvfile
     $fileExt  = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
     if ($fileExt !== 'csv') {
         echo "<script>alert('❌ Please upload a CSV file.');window.location.href='enrollment.php';</script>";
-        exit;
+        exit();
     }
     if ($_FILES['enrollment_csvfile']['size'] > 5 * 1024 * 1024) {
         echo "<script>alert('❌ File size exceeds 5MB limit.');window.location.href='enrollment.php';</script>";
-        exit;
+        exit();
     }
     if ($conn->connect_error) {
         error_log(date('c') . " DB Conn Error during CSV import: " . $conn->connect_error . "\n", 3, $enrollment_error_log);
         echo "<script>alert('Database connection lost. Cannot import CSV.');window.location.href='enrollment.php';</script>";
-        exit;
+        exit();
     }
     if (($handle = fopen($tmpPath, 'r')) !== false) {
         ini_set('auto_detect_line_endings', 1);
@@ -305,7 +319,7 @@ if (isset($_POST['import_enrollments_csv']) && isset($_FILES['enrollment_csvfile
         if (!is_array($header) || count($header) < count($expected_headers)) {
             fclose($handle);
             echo "<script>alert('❌ CSV must have these columns: lrn, grade_level, section_id, school_year');window.location.href='enrollment.php';</script>";
-            exit;
+            exit();
         }
         // Map columns to indices
         $col_map = [];
@@ -321,7 +335,7 @@ if (isset($_POST['import_enrollments_csv']) && isset($_FILES['enrollment_csvfile
             if (!$found) {
                 fclose($handle);
                 echo "<script>alert('❌ CSV header is missing required column: \"{$expected_header}\".');window.location.href='enrollment.php';</script>";
-                exit;
+                exit();
             }
         }
         $stmt = $conn->prepare("INSERT INTO enrollments (lrn, grade_level, section_id, school_year) VALUES (?, ?, ?, ?)");
@@ -329,7 +343,7 @@ if (isset($_POST['import_enrollments_csv']) && isset($_FILES['enrollment_csvfile
             fclose($handle);
             error_log(date('c') . " PREPARE ERR (CSV Import): " . $conn->error . "\n", 3, $enrollment_error_log);
             echo "<script>alert('❌ Database error preparing CSV import.');window.location.href='enrollment.php';</script>";
-            exit;
+            exit();
         }
         $rowCount = 0;
         $errors   = [];
@@ -411,6 +425,14 @@ if (isset($_POST['import_enrollments_csv']) && isset($_FILES['enrollment_csvfile
         }
         fclose($handle);
         $stmt->close();
+
+        // Reset AUTO_INCREMENT after CSV import
+        $max_id = $conn->query("SELECT MAX(enrollment_id) AS max_id FROM enrollments")->fetch_assoc()['max_id'];
+        if ($max_id === null) {
+            $max_id = 0;
+        }
+        $conn->query("ALTER TABLE enrollments AUTO_INCREMENT = " . ($max_id + 1));
+
         $message = "✓ CSV Import Complete\nSuccessfully imported: {$rowCount} enrollment records\n";
         if (!empty($errors)) {
             $message .= "\n❌ Errors (" . count($errors) . " rows failed):\n" . implode("\n", array_slice($errors, 0, 5));
@@ -705,95 +727,77 @@ if (!$enrollments_result) {
     </a>
 
     <!-- Add Enrollment Modal -->
-    <div class="modal fade" id="addEnrollmentModal" tabindex="-1" aria-hidden="true">
-      <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title">Add New Enrollment</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+<div class="modal fade" id="addEnrollmentModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Add New Enrollment</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form method="post" id="enrollmentForm">
+          <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+          <div class="mb-3">
+            <label for="lrn_input" class="form-label">Student LRN *</label>
+            <input type="text" id="lrn_input" name="lrn" class="form-control" placeholder="Enter LRN" required>
           </div>
-          <div class="modal-body">
-            <form method="post" id="enrollmentForm">
-              <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
-              <div class="mb-3">
-                <label for="lrn_input" class="form-label">Student LRN *</label>
-                <input type="text" id="lrn_input" name="lrn" class="form-control" list="student_lrns" placeholder="Type LRN or select from list" required>
-                <datalist id="student_lrns">
-                  <?php foreach ($all_students_for_dropdown as $student): ?>
-                    <option value="<?= htmlspecialchars($student['lrn']) ?>"><?= htmlspecialchars($student['name']) ?></option>
-                  <?php endforeach; ?>
-                </datalist>
-              </div>
-              <div class="mb-3">
-                <label for="add_grade_level" class="form-label">Grade Level *</label>
-                <select id="add_grade_level" name="grade_level" class="form-control" required onchange="populateSections('add_grade_level', 'add_section_id')">
-                  <option value="">Select Grade Level</option>
-                  <?php foreach ($available_grade_levels as $lvl): ?>
-                    <option value="<?= htmlspecialchars($lvl) ?>"><?= htmlspecialchars($lvl) ?></option>
-                  <?php endforeach; ?>
-                </select>
-              </div>
-              <div class="mb-3">
-                <label for="add_section_id" class="form-label">Section *</label>
-                <select id="add_section_id" name="section_id" class="form-control" required>
-                  <option value="">Select Grade Level first</option>
-                </select>
-              </div>
-              <div class="mb-3">
-                <label for="school_year_add" class="form-label">School Year *</label>
-                <input type="text" id="school_year_add" name="school_year" class="form-control" maxlength="9" required value="<?= getCurrentSchoolYear() ?>">
-              </div>
-              <div class="text-center">
-                <button type="submit" name="add_enrollment" class="btn btn-primary px-4 py-2">Enroll Student</button>
-              </div>
-            </form>
+          <div class="mb-3">
+            <label for="add_grade_level" class="form-label">Grade Level *</label>
+            <input type="text" id="add_grade_level" name="grade_level" class="form-control" placeholder="Enter Grade Level" required>
           </div>
-        </div>
+          <div class="mb-3">
+            <label for="add_section_id" class="form-label">Section *</label>
+            <input type="text" id="add_section_id" name="section_id" class="form-control" placeholder="Enter Section" required>
+          </div>
+          <div class="mb-3">
+            <label for="school_year_add" class="form-label">School Year *</label>
+            <input type="text" id="school_year_add" name="school_year" class="form-control" maxlength="9" required value="<?= getCurrentSchoolYear() ?>">
+          </div>
+          <div class="text-center">
+            <button type="submit" name="add_enrollment" class="btn btn-primary px-4 py-2">Enroll Student</button>
+          </div>
+        </form>
       </div>
     </div>
+  </div>
+</div>
 
     <!-- Edit Enrollment Modal -->
-    <div class="modal fade" id="editEnrollmentModal" tabindex="-1" aria-hidden="true">
-      <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title">Edit Enrollment</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+<div class="modal fade" id="editEnrollmentModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Edit Enrollment</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form method="post">
+          <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+          <input type="hidden" id="edit_enrollment_id" name="edit_enrollment_id">
+          <div class="mb-3">
+            <label for="edit_lrn_input" class="form-label">Student LRN *</label>
+            <input type="text" id="edit_lrn_input" name="edit_lrn_input" class="form-control" placeholder="Enter LRN" required>
           </div>
-          <div class="modal-body">
-            <form method="post">
-              <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
-              <input type="hidden" id="edit_enrollment_id" name="edit_enrollment_id">
-              <div class="mb-3">
-                <label for="edit_lrn_input" class="form-label">Student LRN *</label>
-                <input type="text" id="edit_lrn_input" name="edit_lrn_input" class="form-control" list="student_lrns" required>
-              </div>
-              <div class="mb-3">
-                <label for="edit_grade_level" class="form-label">Grade Level *</label>
-                <select id="edit_grade_level" name="edit_grade_level" class="form-control" required onchange="populateSections('edit_grade_level', 'edit_section_id')">
-                  <?php foreach ($available_grade_levels as $lvl): ?>
-                    <option value="<?= htmlspecialchars($lvl) ?>"><?= htmlspecialchars($lvl) ?></option>
-                  <?php endforeach; ?>
-                </select>
-              </div>
-              <div class="mb-3">
-                <label for="edit_section_id" class="form-label">Section *</label>
-                <select id="edit_section_id" name="edit_section_id" class="form-control" required>
-                  <option value="">Select Grade Level first</option>
-                </select>
-              </div>
-              <div class="mb-3">
-                <label for="edit_school_year" class="form-label">School Year *</label>
-                <input type="text" id="edit_school_year" name="edit_school_year" class="form-control" maxlength="9" required>
-              </div>
-              <div class="text-center">
-                <button type="submit" name="edit_enrollment" class="btn btn-primary px-4 py-2">Save Changes</button>
-              </div>
-            </form>
+          <div class="mb-3">
+            <label for="edit_grade_level" class="form-label">Grade Level *</label>
+            <input type="text" id="edit_grade_level" name="edit_grade_level" class="form-control" placeholder="Enter Grade Level" required>
           </div>
-        </div>
+          <div class="mb-3">
+            <label for="edit_section_id" class="form-label">Section *</label>
+            <input type="text" id="edit_section_id" name="edit_section_id" class="form-control" placeholder="Enter Section" required>
+          </div>
+          <div class="mb-3">
+            <label for="edit_school_year" class="form-label">School Year *</label>
+            <input type="text" id="edit_school_year" name="edit_school_year" class="form-control" maxlength="9" required>
+          </div>
+          <div class="text-center">
+            <button type="submit" name="edit_enrollment" class="btn btn-primary px-4 py-2">Save Changes</button>
+          </div>
+        </form>
       </div>
     </div>
+  </div>
+</div>
 
     <!-- Import Enrollment CSV Modal -->
     <div class="modal fade" id="importModal" tabindex="-1" aria-labelledby="importModalLabel" aria-hidden="true">

@@ -13,10 +13,11 @@ if (!is_dir('logs')) {
     mkdir('logs', 0755, true);
 }
 $adviser_error_log = 'logs/adviser_errors.txt';
+$general_error_log = 'logs/error_log.txt';
 
 // --- Database Connection Check ---
 if ($conn->connect_error) {
-    error_log(date('c') . " DB Conn Error: " . $conn->connect_error . "\n", 3, 'logs/error_log.txt');
+    error_log(date('c') . " DB Conn Error: " . $conn->connect_error . "\n", 3, $general_error_log);
     die("Database connection failed. Please check the logs.");
 }
 $conn->set_charset("utf8");
@@ -25,10 +26,11 @@ $conn->set_charset("utf8");
 if (!isset($_SESSION['csrf_token'])) {
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
-function validate_csrf_token() {
+
+function validate_csrf_token($log_file_path) {
     if (isset($_POST['csrf_token']) && !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'] ?? '')) {
-        error_log(date('c') . " CSRF Attack Detected: " . $_SERVER['REMOTE_ADDR'] . "\n", 3, 'logs/adviser_errors.txt');
-        echo "<script>alert('Invalid security token. Please try again.');location='adviser.php'</script>";
+        error_log(date('c') . " CSRF Attack Detected: " . $_SERVER['REMOTE_ADDR'] . "\n", 3, $log_file_path);
+        echo "<script>alert('Invalid security token. Please try again.');location='add_adviser.php'</script>";
         exit();
     }
 }
@@ -39,70 +41,120 @@ ADVISER MANAGEMENT
 
 // --- Handle Add Adviser ---
 if (isset($_POST['add_adviser'])) {
-    validate_csrf_token();
+    validate_csrf_token($adviser_error_log);
     $employee_id = htmlspecialchars(trim($_POST['employee_id']), ENT_QUOTES, 'UTF-8');
     $lastname    = htmlspecialchars(trim($_POST['lastname']), ENT_QUOTES, 'UTF-8');
     $firstname   = htmlspecialchars(trim($_POST['firstname']), ENT_QUOTES, 'UTF-8');
     $middlename  = htmlspecialchars(trim($_POST['middlename']), ENT_QUOTES, 'UTF-8');
     $suffix      = htmlspecialchars(trim($_POST['suffix']), ENT_QUOTES, 'UTF-8');
     $gender      = ($_POST['gender'] === 'male') ? 'male' : 'female';
+    $username    = htmlspecialchars(trim($_POST['username']), ENT_QUOTES, 'UTF-8');
+    $pass        = $_POST['pass']; // store as plain text
 
-    if (empty($employee_id) || empty($lastname) || empty($firstname)) {
-        echo "<script>alert('Employee ID, Last Name and First Name are required.'); location='adviser.php'</script>";
+    if (empty($employee_id) || empty($lastname) || empty($firstname) || empty($username) || empty($pass)) {
+        echo "<script>alert('Employee ID, Last Name, First Name, Username, and Password are required.'); location='add_adviser.php'</script>";
         exit();
     }
 
+    // NO HASHING HERE – store plain text password
+    $plain_pass = $pass;
+
     $conn->begin_transaction();
     try {
-        // Check duplicate employee_id
-        $dup = $conn->prepare("SELECT adviser_id FROM advisers WHERE employee_id = ?");
-        $dup->bind_param("s", $employee_id);
-        $dup->execute();
-        $dup->store_result();
-        if ($dup->num_rows > 0) {
+        $dup_employee = $conn->prepare("SELECT adviser_id FROM advisers WHERE employee_id = ?");
+        if (!$dup_employee) {
+            throw new Exception("Prepare failed: " . $conn->error);
+        }
+        $dup_employee->bind_param("s", $employee_id);
+        $dup_employee->execute();
+        $dup_employee->store_result();
+        if ($dup_employee->num_rows > 0) {
             throw new Exception("Employee ID '$employee_id' already exists.");
         }
-        $dup->close();
+        $dup_employee->close();
 
-        $stmt = $conn->prepare("INSERT INTO advisers (employee_id, lastname, firstname, middlename, suffix, gender) VALUES (?, ?, ?, ?, ?, ?)");
-        $stmt->bind_param("ssssss", $employee_id, $lastname, $firstname, $middlename, $suffix, $gender);
+        $dup_username = $conn->prepare("SELECT adviser_id FROM advisers WHERE username = ?");
+        if (!$dup_username) {
+            throw new Exception("Prepare failed: " . $conn->error);
+        }
+        $dup_username->bind_param("s", $username);
+        $dup_username->execute();
+        $dup_username->store_result();
+        if ($dup_username->num_rows > 0) {
+            throw new Exception("Username '$username' already exists.");
+        }
+        $dup_username->close();
+
+        $stmt = $conn->prepare("INSERT INTO advisers (employee_id, lastname, firstname, middlename, suffix, gender, username, pass) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+        if (!$stmt) {
+            throw new Exception("Prepare failed: " . $conn->error);
+        }
+        $stmt->bind_param("ssssssss", $employee_id, $lastname, $firstname, $middlename, $suffix, $gender, $username, $plain_pass);
         if (!$stmt->execute()) {
             throw new Exception($stmt->error);
         }
         $stmt->close();
         $conn->commit();
 
-        header("Location: adviser.php?status=added");
+        header("Location: add_adviser.php?status=added");
         exit();
     } catch (Exception $e) {
         $conn->rollback();
-        echo "<script>alert('Error adding adviser: " . $e->getMessage() . "'); location='adviser.php'</script>";
+        error_log(date('c') . " Add Adviser Error: " . $e->getMessage() . "\n", 3, $adviser_error_log);
+        echo "<script>alert('Error adding adviser: " . addslashes($e->getMessage()) . "'); location='add_adviser.php'</script>";
         exit();
     }
 }
 
 // --- Handle Delete Adviser ---
 if (isset($_POST['delete_adviser'])) {
-    validate_csrf_token();
+    validate_csrf_token($adviser_error_log);
     $adviser_id = filter_var($_POST['adviser_id'], FILTER_VALIDATE_INT);
     if ($adviser_id === false) {
-        echo "<script>alert('Invalid Adviser ID.'); location='adviser.php'</script>";
+        echo "<script>alert('Invalid Adviser ID.'); location='add_adviser.php'</script>";
         exit();
     }
 
-    $stmt = $conn->prepare("DELETE FROM advisers WHERE adviser_id = ?");
-    $stmt->bind_param("i", $adviser_id);
-    if ($stmt->execute()) {
-        header("Location: adviser.php?status=deleted");
-    } else {
-        echo "<script>alert('Delete failed: " . $stmt->error . "'); location='adviser.php'</script>";
+    $conn->begin_transaction();
+    try {
+        $check_sections = $conn->prepare("SELECT COUNT(*) FROM sections WHERE adviser_id = ?");
+        if (!$check_sections) {
+            throw new Exception("Prepare failed: " . $conn->error);
+        }
+        $check_sections->bind_param("i", $adviser_id);
+        $check_sections->execute();
+        $check_sections->bind_result($section_count);
+        $check_sections->fetch();
+        $check_sections->close();
+
+        if ($section_count > 0) {
+            throw new Exception("Cannot delete adviser. They are assigned to $section_count section(s). Please reassign or delete sections first.");
+        }
+
+        $stmt = $conn->prepare("DELETE FROM advisers WHERE adviser_id = ?");
+        if (!$stmt) {
+            throw new Exception("Prepare failed: " . $conn->error);
+        }
+        $stmt->bind_param("i", $adviser_id);
+        if (!$stmt->execute()) {
+            throw new Exception($stmt->error);
+        }
+        $stmt->close();
+
+        $conn->commit();
+        header("Location: add_adviser.php?status=deleted");
+        exit();
+    } catch (Exception $e) {
+        $conn->rollback();
+        error_log(date('c') . " Delete Adviser Error: " . $e->getMessage() . "\n", 3, $adviser_error_log);
+        echo "<script>alert('Delete failed: " . addslashes($e->getMessage()) . "'); location='add_adviser.php'</script>";
+        exit();
     }
-    exit();
 }
 
 // --- Handle Edit Adviser ---
 if (isset($_POST['edit_adviser'])) {
-    validate_csrf_token();
+    validate_csrf_token($adviser_error_log);
     $adviser_id  = filter_var($_POST['edit_adviser_id'], FILTER_VALIDATE_INT);
     $employee_id = htmlspecialchars(trim($_POST['edit_employee_id']), ENT_QUOTES, 'UTF-8');
     $lastname    = htmlspecialchars(trim($_POST['edit_lastname']), ENT_QUOTES, 'UTF-8');
@@ -110,42 +162,87 @@ if (isset($_POST['edit_adviser'])) {
     $middlename  = htmlspecialchars(trim($_POST['edit_middlename']), ENT_QUOTES, 'UTF-8');
     $suffix      = htmlspecialchars(trim($_POST['edit_suffix']), ENT_QUOTES, 'UTF-8');
     $gender      = ($_POST['edit_gender'] === 'female') ? 'female' : 'male';
+    $username    = htmlspecialchars(trim($_POST['edit_username']), ENT_QUOTES, 'UTF-8');
+    $pass_new    = trim($_POST['edit_pass']); // plain text if changed
 
-    if ($adviser_id === false || empty($employee_id) || empty($lastname) || empty($firstname)) {
-        echo "<script>alert('Invalid input. Please fill out all required fields.'); location='adviser.php'</script>";
+    if ($adviser_id === false || empty($employee_id) || empty($lastname) || empty($firstname) || empty($username)) {
+        echo "<script>alert('Employee ID, Last Name, First Name, and Username are required.'); location='add_adviser.php'</script>";
         exit();
     }
 
     $conn->begin_transaction();
     try {
-        // Check duplicate employee_id from another record
-        $dup = $conn->prepare("SELECT adviser_id FROM advisers WHERE employee_id = ? AND adviser_id != ?");
-        $dup->bind_param("si", $employee_id, $adviser_id);
-        $dup->execute();
-        $dup->store_result();
-        if ($dup->num_rows > 0) {
-            throw new Exception("Employee ID '$employee_id' already exists.");
+        $dup_employee = $conn->prepare("SELECT adviser_id FROM advisers WHERE employee_id = ? AND adviser_id != ?");
+        if (!$dup_employee) {
+            throw new Exception("Prepare failed: " . $conn->error);
         }
-        $dup->close();
+        $dup_employee->bind_param("si", $employee_id, $adviser_id);
+        $dup_employee->execute();
+        $dup_employee->store_result();
+        if ($dup_employee->num_rows > 0) {
+            throw new Exception("Employee ID '$employee_id' already exists for another adviser.");
+        }
+        $dup_employee->close();
 
-        $stmt = $conn->prepare("UPDATE advisers SET employee_id = ?, lastname = ?, firstname = ?, middlename = ?, suffix = ?, gender = ? WHERE adviser_id = ?");
-        $stmt->bind_param("ssssssi", $employee_id, $lastname, $firstname, $middlename, $suffix, $gender, $adviser_id);
+        $dup_username = $conn->prepare("SELECT adviser_id FROM advisers WHERE username = ? AND adviser_id != ?");
+        if (!$dup_username) {
+            throw new Exception("Prepare failed: " . $conn->error);
+        }
+        $dup_username->bind_param("si", $username, $adviser_id);
+        $dup_username->execute();
+        $dup_username->store_result();
+        if ($dup_username->num_rows > 0) {
+            throw new Exception("Username '$username' already exists for another adviser.");
+        }
+        $dup_username->close();
+
+        $sql = "UPDATE advisers SET employee_id = ?, lastname = ?, firstname = ?, middlename = ?, suffix = ?, gender = ?, username = ?";
+        $param_types = "sssssss";
+        $param_values = [$employee_id, $lastname, $firstname, $middlename, $suffix, $gender, $username];
+
+        if (!empty($pass_new)) {
+            // NO HASHING – save plain text password
+            $sql .= ", pass = ?";
+            $param_types .= "s";
+            $param_values[] = $pass_new;
+        }
+
+        $sql .= " WHERE adviser_id = ?";
+        $param_types .= "i";
+        $param_values[] = $adviser_id;
+        
+        $stmt = $conn->prepare($sql);
+        if (!$stmt) {
+            throw new Exception("Prepare failed: " . $conn->error);
+        }
+
+        $bind_params = [];
+        $bind_params[] = $param_types;
+        foreach ($param_values as $key => $value) {
+            $bind_params[] = &$param_values[$key];
+        }
+
+        if (!call_user_func_array([$stmt, 'bind_param'], $bind_params)) {
+            throw new Exception("Bind_param failed: " . $stmt->error);
+        }
+
         if (!$stmt->execute()) {
             throw new Exception($stmt->error);
         }
         $stmt->close();
         $conn->commit();
-        header("Location: adviser.php?status=updated");
+        header("Location: add_adviser.php?status=updated");
         exit();
     } catch (Exception $e) {
         $conn->rollback();
-        echo "<script>alert('Error updating adviser: " . $e->getMessage() . "'); location='adviser.php'</script>";
+        error_log(date('c') . " Edit Adviser Error: " . $e->getMessage() . "\n", 3, $adviser_error_log);
+        echo "<script>alert('Error updating adviser: " . addslashes($e->getMessage()) . "'); location='add_adviser.php'</script>";
         exit();
     }
 }
 
 /***********************************
-CSV IMPORT FOR ADVISERS (OPTIONAL)
+CSV IMPORT FOR ADVISERS - PLAIN PASSWORD
 ***********************************/
 function safeTrimCSV($value) {
     if (is_null($value) || is_array($value) || is_bool($value) || is_object($value)) {
@@ -155,131 +252,168 @@ function safeTrimCSV($value) {
 }
 
 if (isset($_POST['import_advisers_csv']) && isset($_FILES['adviser_csvfile']) && $_FILES['adviser_csvfile']['error'] === UPLOAD_ERR_OK) {
-    validate_csrf_token();
-    $tmpPath  = $_FILES['adviser_csvfile']['tmp_name'];
-    $fileName = $_FILES['adviser_csvfile']['name'];
-    $fileExt  = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
+    validate_csrf_token($adviser_error_log);
+    $tmpPath = $_FILES['adviser_csvfile']['tmp_name'];
+    $fileExt = strtolower(pathinfo($_FILES['adviser_csvfile']['name'], PATHINFO_EXTENSION));
+
     if ($fileExt !== 'csv') {
-        echo "<script>alert('❌ Please upload a CSV file.'); location='adviser.php'</script>";
+        echo "<script>alert('❌ Please upload a CSV file.'); location='add_adviser.php'</script>";
         exit();
     }
-    if ($_FILES['adviser_csvfile']['size'] > 5 * 1024 * 1024) { // 5MB max
-        echo "<script>alert('❌ File size exceeds 5MB limit.'); location='adviser.php'</script>";
+    if ($_FILES['adviser_csvfile']['size'] > 5 * 1024 * 1024) {
+        echo "<script>alert('❌ File size exceeds 5MB limit.'); location='add_adviser.php'</script>";
         exit();
     }
-    if ($conn->connect_error) {
-        error_log(date('c') . " DB Conn Error during CSV import: " . $conn->connect_error . "\n", 3, $adviser_error_log);
-        echo "<script>alert('Database connection lost. Cannot import CSV.'); location='adviser.php'</script>";
-        exit();
-    }
-    
+
     if (($handle = fopen($tmpPath, 'r')) !== false) {
         ini_set('auto_detect_line_endings', 1);
         $header = fgetcsv($handle, 2000, ",");
-        // Expected CSV header columns:
-        // employee_id, lastname, firstname, middlename, suffix, gender
-        $expected_headers = ['employee_id', 'lastname', 'firstname', 'middlename', 'suffix', 'gender'];
-        if (!is_array($header) || count($header) < count($expected_headers)) {
+
+        // Support both 'pass' AND 'password' headers
+        $expected_fields = [
+            'employee_id' => ['employee_id'],
+            'lastname'    => ['lastname', 'last_name'],
+            'firstname'   => ['firstname', 'first_name'],
+            'middlename'  => ['middlename', 'middle_name'],
+            'suffix'      => ['suffix'],
+            'gender'      => ['gender'],
+            'username'    => ['username'],
+            'pass'        => ['pass', 'password']
+        ];
+
+        if (!is_array($header) || count(array_filter($header)) < 8) { 
             fclose($handle);
-            echo "<script>alert('❌ CSV must have these columns: employee_id, lastname, firstname, middlename, suffix, gender'); location='adviser.php'</script>";
+            echo "<script>alert('❌ CSV must have at least 8 columns.'); location='add_adviser.php'</script>";
             exit();
         }
-        // Map CSV columns to indices
+
+        // Map columns case-insensitively with multiple header options
         $col_map = [];
-        foreach ($expected_headers as $expected_header) {
+        foreach ($expected_fields as $field => $possible_headers) {
             $found = false;
-            foreach ($header as $h_idx => $h_val) {
-                if (strtolower(trim($h_val)) === $expected_header) {
-                    $col_map[$expected_header] = $h_idx;
-                    $found = true;
-                    break;
+            foreach ($possible_headers as $possible_header) {
+                foreach ($header as $idx => $h_val) {
+                    if (strtolower(safeTrimCSV($h_val)) === strtolower($possible_header)) {
+                        $col_map[$field] = $idx;
+                        $found = true;
+                        break 2;
+                    }
                 }
             }
             if (!$found) {
                 fclose($handle);
-                echo "<script>alert('❌ Missing column: {$expected_header}'); location='adviser.php'</script>";
+                echo "<script>alert('❌ Missing required column: " . ucfirst(str_replace('_', ' ', $field)) . " (expected: " . implode(', ', $possible_headers) . ")'); location='add_adviser.php'</script>";
                 exit();
             }
         }
-        $stmt = $conn->prepare("INSERT INTO advisers (employee_id, lastname, firstname, middlename, suffix, gender) VALUES (?, ?, ?, ?, ?, ?)");
-        if (!$stmt) {
+
+        $conn->begin_transaction();
+        try {
+            if (!$conn->query("DELETE FROM sections")) {
+                throw new Exception("SQL Error: Could not clear sections table: " . $conn->error);
+            }
+
+            if (!$conn->query("SET FOREIGN_KEY_CHECKS = 0")) {
+                throw new Exception("SQL Error: Could not disable foreign key checks: " . $conn->error);
+            }
+
+            if (!$conn->query("TRUNCATE TABLE advisers")) {
+                $conn->query("SET FOREIGN_KEY_CHECKS = 1"); 
+                throw new Exception("SQL Error: Could not truncate advisers table: " . $conn->error);
+            }
+
+            if (!$conn->query("SET FOREIGN_KEY_CHECKS = 1")) {
+                throw new Exception("SQL Error: Could not re-enable foreign key checks: " . $conn->error);
+            }
+
+            $stmt = $conn->prepare("INSERT INTO advisers (employee_id, lastname, firstname, middlename, suffix, gender, username, pass) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+            if (!$stmt) {
+                throw new Exception("Database error preparing import statement: " . $conn->error);
+            }
+
+            $rowCount = 0;
+            $errors = [];
+            $row_num = 1;
+
+            while (($data = fgetcsv($handle, 2000, ",")) !== false) {
+                $row_num++;
+                if (!is_array($data) || count(array_filter($data)) === 0 || count($data) < 8) {
+                    continue;
+                }
+
+                $csv_employee_id = safeTrimCSV($data[$col_map['employee_id']] ?? '');
+                $csv_lastname    = htmlspecialchars(safeTrimCSV($data[$col_map['lastname']] ?? ''), ENT_QUOTES, 'UTF-8');
+                $csv_firstname   = htmlspecialchars(safeTrimCSV($data[$col_map['firstname']] ?? ''), ENT_QUOTES, 'UTF-8');
+                $csv_middlename  = htmlspecialchars(safeTrimCSV($data[$col_map['middlename']] ?? ''), ENT_QUOTES, 'UTF-8');
+                $csv_suffix      = htmlspecialchars(safeTrimCSV($data[$col_map['suffix']] ?? ''), ENT_QUOTES, 'UTF-8');
+                $csv_gender      = strtolower(safeTrimCSV($data[$col_map['gender']] ?? '')) === 'female' ? 'female' : 'male';
+                $csv_username    = htmlspecialchars(safeTrimCSV($data[$col_map['username']] ?? ''), ENT_QUOTES, 'UTF-8');
+                $csv_pass        = safeTrimCSV($data[$col_map['pass']] ?? ''); // plain text from CSV
+
+                if (empty($csv_employee_id) || empty($csv_lastname) || empty($csv_firstname) || empty($csv_username) || empty($csv_pass)) {
+                    $errors[] = "Row $row_num: Missing required fields.";
+                    continue;
+                }
+
+                // NO HASHING – save plain text CSV password
+                $stmt->bind_param(
+                    "ssssssss",
+                    $csv_employee_id,
+                    $csv_lastname,
+                    $csv_firstname,
+                    $csv_middlename,
+                    $csv_suffix,
+                    $csv_gender,
+                    $csv_username,
+                    $csv_pass
+                );
+                
+                if ($stmt->execute()) {
+                    $rowCount++;
+                } else {
+                    $errors[] = "Row $row_num: Insert failed (" . $stmt->error . ").";
+                    error_log(date('c') . " CSV Import Row Error: " . $stmt->error . " for row " . $row_num . "\n", 3, $adviser_error_log);
+                }
+            }
             fclose($handle);
-            error_log(date('c') . " PREPARE ERR (CSV Import): " . $conn->error . "\n", 3, $adviser_error_log);
-            echo "<script>alert('❌ DB error preparing CSV import.'); location='adviser.php'</script>";
+            $stmt->close();
+            $conn->commit();
+
+            $message = "✓ CSV Import Complete!\nSuccessfully imported: $rowCount advisers.";
+            if (!empty($errors)) {
+                $message .= "\n\n❌ " . count($errors) . " rows failed. Check logs for details.";
+            }
+            echo "<script>alert(" . json_encode($message) . "); location='add_adviser.php';</script>";
+            exit();
+
+        } catch (Exception $e) {
+            $conn->rollback();
+            $conn->query("SET FOREIGN_KEY_CHECKS = 1"); 
+            error_log(date('c') . " CSV Import Fatal Error: " . $e->getMessage() . "\n", 3, $adviser_error_log);
+            echo "<script>alert('❌ CSV Import failed: " . addslashes($e->getMessage()) . "'); location='add_adviser.php'</script>";
             exit();
         }
-        $rowCount = 0;
-        $errors   = [];
-        $row_num  = 1;
-        while (($data = fgetcsv($handle, 2000, ",")) !== false) {
-            $row_num++;
-            if (!is_array($data) || count(array_filter($data)) === 0 || count($data) < count($expected_headers)) {
-                continue;
-            }
-            $csv_employee_id = safeTrimCSV($data[$col_map['employee_id']] ?? '');
-            $csv_lastname    = htmlspecialchars(trim(safeTrimCSV($data[$col_map['lastname']] ?? '')), ENT_QUOTES);
-            $csv_firstname   = htmlspecialchars(trim(safeTrimCSV($data[$col_map['firstname']] ?? '')), ENT_QUOTES);
-            $csv_middlename  = htmlspecialchars(trim(safeTrimCSV($data[$col_map['middlename']] ?? '')), ENT_QUOTES);
-            $csv_suffix      = htmlspecialchars(trim(safeTrimCSV($data[$col_map['suffix']] ?? '')), ENT_QUOTES);
-            $csv_gender      = strtolower(safeTrimCSV($data[$col_map['gender']] ?? '')) === 'female' ? 'female' : 'male';
-
-            if (empty($csv_employee_id) || empty($csv_lastname) || empty($csv_firstname)) {
-                $errors[] = "Row {$row_num}: Missing required fields.";
-                continue;
-            }
-            // Check for duplicate adviser using employee_id
-            $dup = $conn->prepare("SELECT adviser_id FROM advisers WHERE employee_id = ?");
-            $dup->bind_param("s", $csv_employee_id);
-            $dup->execute();
-            $dup->store_result();
-            if ($dup->num_rows > 0) {
-                $errors[] = "Row {$row_num}: Employee ID '$csv_employee_id' already exists.";
-                $dup->close();
-                continue;
-            }
-            $dup->close();
-
-            $stmt->bind_param("ssssss", $csv_employee_id, $csv_lastname, $csv_firstname, $csv_middlename, $csv_suffix, $csv_gender);
-            if (!$stmt->execute()) {
-                error_log(date('c') . " CSV Import Exec Error: " . $stmt->error . "\n", 3, $adviser_error_log);
-                $errors[] = "Row {$row_num}: DB error during insert.";
-            } else {
-                $rowCount++;
-            }
-        }
-        fclose($handle);
-        $stmt->close();
-        
-        $message = "✓ CSV Import Complete\nSuccessfully imported: {$rowCount} advisers.\n";
-        if (!empty($errors)) {
-            $message .= "\n❌ Errors (" . count($errors) . " rows failed):\n" . implode("\n", array_slice($errors, 0, 5));
-            if (count($errors) > 5) {
-                $message .= "\n... and " . (count($errors) - 5) . " more errors.";
-            }
-        }
-        echo "<script>alert(" . json_encode($message) . ");location='adviser.php'</script>";
-        exit();
     } else {
-        echo "<script>alert('❌ Failed to open CSV file. Check file permissions or integrity.'); location='adviser.php'</script>";
+        echo "<script>alert('❌ Failed to read CSV file. Check file permissions or integrity.'); location='add_adviser.php'</script>";
         exit();
     }
 }
 
-// --- Fetch all advisers for display ---
-$advisers_result = $conn->query("SELECT * FROM advisers ORDER BY lastname, firstname");
+// --- Fetch advisers for display ---
+// NOTE: now also selecting `pass`
+$advisers_result = $conn->query("SELECT adviser_id, employee_id, lastname, firstname, middlename, suffix, gender, username, pass FROM advisers ORDER BY lastname, firstname");
 if (!$advisers_result) {
-    die("Error fetching advisers: " . $conn->error);
+    error_log(date('c') . " Fetch Advisers Error: " . $conn->error . "\n", 3, $general_error_log);
+    die("Error fetching advisers.");
 }
 ?>
 <!DOCTYPE html>
 <html lang="en">
-  <head>
+<head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>Advisers Dashboard</title>
-    <!-- Custom fonts and styles -->
     <link href="vendor/fontawesome-free/css/all.min.css" rel="stylesheet" type="text/css">
-    <!-- Material Symbols -->
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" />
     <link href="https://fonts.googleapis.com/css?family=Nunito:200,300,400,600,700,800,900" rel="stylesheet">
     <link href="css/sb-admin-2.min.css" rel="stylesheet">
@@ -288,132 +422,157 @@ if (!$advisers_result) {
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
     <style>
-      @keyframes hl { 0% { background-color: #c8e6c9; } 100% { background-color: transparent; } }
-      .highlight { animation: hl 2s forwards; }
-      .table-card {
-          background: #fff;
-          border-radius: 16px;
-          padding: 1.5rem;
-          width: 100%;
-          box-shadow: 0 12px 30px rgba(15,23,42,0.08);
-      }
-      .table-responsive-custom { overflow-x: auto; }
-      .custom-table {
-          width: 100%;
-          border-collapse: collapse;
-          font-size: 0.95rem;
-      }
-      .custom-table thead th {
-          text-align: left;
-          font-weight: 600;
-          text-transform: uppercase;
-          font-size: 0.75rem;
-          letter-spacing: 0.08em;
-          color: #4b5563;
-          padding: 0.75rem 1rem;
-          border-bottom: 1px solid #e5e7eb;
-          background-color: #f9fafb;
-      }
-      .custom-table tbody td {
-          padding: 0.85rem 1rem;
-          border-bottom: 1px solid #f1f5f9;
-          vertical-align: middle;
-      }
-      .custom-table tbody tr:hover { background: rgba(59,130,246,0.06); }
-      .actions-cell {
-          display: flex;
-          gap: 0.5rem;
-          justify-content: flex-end;
-          min-width: 80px;
-      }
-      .action-icon-btn {
-          border: none;
-          background: none;
-          padding: 0;
-          margin: 0 2px;
-          cursor: pointer;
-          transition: color 0.2s ease, opacity 0.2s ease;
-      }
-      .action-icon-btn .material-symbols-outlined {
-          font-size: 1.1em;
-          font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
-      }
-      .action-icon-btn.edit-icon .material-symbols-outlined { color: #1c74e4; }
-      .action-icon-btn.delete-icon .material-symbols-outlined { color: #dc3545; }
-      .action-icon-btn:hover .material-symbols-outlined { opacity: 0.7; }
-      .search-box {
-          position: relative;
-          display: inline-block;
-          margin-right: 10px;
-      }
-      .search-box input {
-          padding: 0.5rem 2.5rem 0.5rem 1rem;
-          border: 1px solid #d1d5db;
-          border-radius: 8px;
-          width: 300px;
-          font-size: 0.95rem;
-          transition: all 0.3s ease;
-      }
-      .search-box input:focus {
-          outline: none;
-          border-color: #3b82f6;
-          box-shadow: 0 0 0 3px rgba(59,130,246,0.1);
-      }
-      .search-box .search-icon {
-          position: absolute;
-          right: 0.75rem;
-          top: 50%;
-          transform: translateY(-50%);
-          color: #6b7280;
-          pointer-events: none;
-      }
-      .clear-search {
-          position: absolute;
-          right: 2.5rem;
-          top: 50%;
-          transform: translateY(-50%);
-          background: none;
-          border: none;
-          color: #6b7280;
-          cursor: pointer;
-          display: none;
-      }
-      .clear-search.show { display: block; }
-      .page-title-with-logo {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-      }
-      .page-logo {
-          width: 45px;
-          height: 45px;
-          object-fit: contain;
-          border-radius: 8px;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-      }
+        @keyframes hl { 0% { background-color: #c8e6c9; } 100% { background-color: transparent; } }
+        .highlight { animation: hl 2s forwards; }
+        .table-card {
+            background: #fff;
+            border-radius: 16px;
+            padding: 1.5rem;
+            width: 100%;
+            box-shadow: 0 12px 30px rgba(15,23,42,0.08);
+        }
+        .table-responsive-custom { overflow-x: auto; }
+        .custom-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.95rem;
+        }
+        .custom-table thead th {
+            text-align: left;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.08em;
+            color: #4b5563;
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid #e5e7eb;
+            background-color: #f9fafb;
+        }
+        .custom-table tbody td {
+            padding: 0.85rem 1rem;
+            border-bottom: 1px solid #f1f5f9;
+            vertical-align: middle;
+        }
+        .custom-table tbody tr:hover { background: rgba(59,130,246,0.06); }
+        .actions-cell {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: flex-end;
+            min-width: 80px;
+        }
+        .action-icon-btn {
+            border: none;
+            background: none;
+            padding: 0;
+            margin: 0 2px;
+            cursor: pointer;
+            transition: color 0.2s ease, opacity 0.2s ease;
+        }
+        .action-icon-btn .material-symbols-outlined {
+            font-size: 1.1em;
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .action-icon-btn.edit-icon .material-symbols-outlined { color: #1c74e4; }
+        .action-icon-btn.delete-icon .material-symbols-outlined { color: #dc3545; }
+        .action-icon-btn:hover .material-symbols-outlined { opacity: 0.7; }
+        .search-box {
+            position: relative;
+            display: inline-block;
+            margin-right: 10px;
+        }
+        .search-box input {
+            padding: 0.5rem 2.5rem 0.5rem 1rem;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            width: 300px;
+            font-size: 0.95rem;
+            transition: all 0.3s ease;
+        }
+        .search-box input:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59,130,246,0.1);
+        }
+        .search-box .search-icon {
+            position: absolute;
+            right: 0.75rem;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #6b7280;
+            pointer-events: none;
+        }
+        .clear-search {
+            position: absolute;
+            right: 2.5rem;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: #6b7280;
+            cursor: pointer;
+            display: none;
+        }
+        .clear-search.show { display: block; }
+        .page-title-with-logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .page-logo {
+            width: 45px;
+            height: 45px;
+            object-fit: contain;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        /* Styles for modal headers matching guardian.php */
+        .modal-header {
+            background-color: #007bff; /* Primary blue for header */
+            color: white;
+        }
+        .modal-header .btn-close-white {
+            filter: invert(1); /* Makes the close button white */
+        }
+        /* Styles for primary buttons matching guardian.php */
+        .btn-primary {
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            border-radius: 15px;
+        }
     </style>
     <script>
-      $(document).ready(function(){
-        // Initialize search functionality
-        const searchInput = $('#searchGuardian');
+    $(document).ready(function(){
+        const searchInput = $('#searchAdviser');
         const clearBtn = $('#clearSearch');
         const tableRows = $('.custom-table tbody tr');
+        
         searchInput.on('input', function() {
             const searchTerm = $(this).val().toLowerCase().trim();
-            if(searchTerm.length > 0) { clearBtn.addClass('show'); } else { clearBtn.removeClass('show'); }
+            if(searchTerm.length > 0) { 
+                clearBtn.addClass('show'); 
+            } else { 
+                clearBtn.removeClass('show'); 
+            }
             let visibleCount = 0;
             tableRows.each(function(){
                 const row = $(this);
+                if (row.attr('id') === 'noResults' && searchTerm.length > 0) {
+                    row.remove();
+                    return true;
+                }
                 if(row.text().toLowerCase().includes(searchTerm)){
-                    row.show(); visibleCount++;
-                }else{
+                    row.show(); 
+                    visibleCount++;
+                } else {
                     row.hide();
                 }
             });
             if(visibleCount === 0 && searchTerm.length > 0 && $('#noResults').length === 0) {
-                $('.custom-table tbody').append('<tr id="noResults"><td colspan="9" class="border px-3 py-2 text-center text-gray-500"><span class="material-symbols-outlined" style="font-size:1.2rem;">search_off</span> No advisers found matching "' + searchTerm + '"</td></tr>');
-            } else { $('#noResults').remove(); }
+                $('.custom-table tbody').append('<tr id="noResults"><td colspan="10" class="border px-3 py-2 text-center text-gray-500 py-8"><span class="material-symbols-outlined" style="font-size:1.5rem;">search_off</span><br>No advisers found matching "' + searchTerm + '"</td></tr>');
+            } else if (searchTerm.length === 0) {
+                $('#noResults').remove();
+            }
         });
+        
         clearBtn.on('click', function(){
             searchInput.val('');
             clearBtn.removeClass('show');
@@ -421,232 +580,299 @@ if (!$advisers_result) {
             $('#noResults').remove();
             searchInput.focus();
         });
-        searchInput.on('keydown', function(e) { if(e.key === 'Escape') clearBtn.click(); });
-      });
-      
-      // Populate Edit Modal with adviser data
-      function openEditAdviserModal(data) {
-          const editModal = new bootstrap.Modal(document.getElementById('editAdviserModal'));
-          document.getElementById('edit_adviser_id').value   = data.adviser_id;
-          document.getElementById('edit_employee_id').value  = data.employee_id;
-          document.getElementById('edit_lastname').value     = data.lastname;
-          document.getElementById('edit_firstname').value    = data.firstname;
-          document.getElementById('edit_middlename').value   = data.middlename;
-          document.getElementById('edit_suffix').value       = data.suffix;
-          document.getElementById('edit_gender').value       = data.gender;
-          editModal.show();
-      }
+        
+        searchInput.on('keydown', function(e) { 
+            if(e.key === 'Escape') clearBtn.click(); 
+        });
+    });
+
+    function openEditAdviserModal(adviser_id, employee_id, lastname, firstname, middlename, suffix, gender, username) {
+        const editModal = new bootstrap.Modal(document.getElementById('editAdviserModal'));
+        document.getElementById('edit_adviser_id').value = adviser_id;
+        document.getElementById('edit_employee_id').value = employee_id;
+        document.getElementById('edit_lastname').value = lastname;
+        document.getElementById('edit_firstname').value = firstname;
+        document.getElementById('edit_middlename').value = middlename;
+        document.getElementById('edit_suffix').value = suffix;
+        document.getElementById('edit_gender').value = gender;
+        document.getElementById('edit_username').value = username;
+        document.getElementById('edit_pass').value = '';
+        editModal.show();
+    }
     </script>
-  </head>
-  <body id="page-top">
+</head>
+<body id="page-top">
     <?php include 'nav.php'; ?>
     <div id="wrapper">
-      <div id="content-wrapper" class="d-flex flex-column">
-        <div id="content">
-          <div class="container-fluid">
-            <div class="d-flex justify-content-between align-items-center mb-4 mt-4">
-              <div class="page-title-with-logo">
-                <!-- Logo/Photo - update with your actual logo path -->
-                <img src="img/depedlogo.jpg" alt="Adviser Logo" class="page-logo">
-                <h2 class="h3 mb-0 text-gray-800">Advisers Dashboard</h2>
-              </div>
-              <div class="d-flex align-items-center">
-                <div class="search-box">
-                  <input type="text" id="searchGuardian" placeholder="Search Adviser" autocomplete="off">
-                  <button type="button" class="clear-search" id="clearSearch" title="Clear search">
-                    <span class="material-symbols-outlined">close</span>
-                  </button>
-                  <span class="search-icon">
-                    <span class="material-symbols-outlined">search</span>
-                  </span>
-                </div>
-                <!-- Import CSV Button -->
-                <button type="button" class="btn btn-success me-2" data-bs-toggle="modal" data-bs-target="#importModal" style="box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
-                    <span class="material-symbols-outlined">upload_file</span> Import CSV
-                </button>
-                <!-- Add Adviser Button -->
-                <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addAdviserModal" style="box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
-                    <span class="material-symbols-outlined">person_add</span> Add Adviser
-                </button>
-              </div>
-            </div>
-            <div class="table-card">
-              <div class="table-responsive-custom">
-                <table class="custom-table">
-                  <thead class="bg-gray-200 font-semibold">
-                    <tr>
-                      <th class="border px-3 py-2">#</th>
-                      <th class="border px-3 py-2">Employee ID</th>
-                      <th class="border px-3 py-2">Last Name</th>
-                      <th class="border px-3 py-2">First Name</th>
-                      <th class="border px-3 py-2">Middle Name</th>
-                      <th class="border px-3 py-2">Suffix</th>
-                      <th class="border px-3 py-2">Gender</th>
-                      <th class="border px-3 py-2">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <?php
-                      $counter = 1;
-                      while ($row = $advisers_result->fetch_assoc()):
-                    ?>
-                    <tr class="hover:bg-gray-50">
-                      <td class="border px-3 py-2"><?= $counter++ ?></td>
-                      <td class="border px-3 py-2"><?= htmlspecialchars($row['employee_id']) ?></td>
-                      <td class="border px-3 py-2"><?= htmlspecialchars($row['lastname']) ?></td>
-                      <td class="border px-3 py-2"><?= htmlspecialchars($row['firstname']) ?></td>
-                      <td class="border px-3 py-2"><?= htmlspecialchars($row['middlename']) ?></td>
-                      <td class="border px-3 py-2"><?= htmlspecialchars($row['suffix']) ?></td>
-                      <td class="border px-3 py-2"><?= htmlspecialchars($row['gender']) ?></td>
-                      <td class="border px-3 py-2 actions-cell">
-                        <button onclick='openEditAdviserModal(<?= json_encode($row) ?>)' class="action-icon-btn edit-icon" title="Edit Adviser">
-                          <span class="material-symbols-outlined">edit</span>
-                        </button>
-                        <form method="POST" class="d-inline" onsubmit="return confirm('Delete adviser <?= htmlspecialchars($row['firstname'] . ' ' . $row['lastname']) ?>?');">
-                          <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
-                          <input type="hidden" name="adviser_id" value="<?= $row['adviser_id'] ?>">
-                          <button type="submit" name="delete_adviser" class="action-icon-btn delete-icon" title="Delete Adviser">
-                            <span class="material-symbols-outlined">delete</span>
-                          </button>
-                        </form>
-                      </td>
-                    </tr>
-                    <?php endwhile; ?>
-                    <?php if ($counter === 1): ?>
-                      <tr>
-                        <td colspan="8" class="border px-3 py-2 text-center text-gray-500">No advisers found.</td>
-                      </tr>
+        <div id="content-wrapper" class="d-flex flex-column">
+            <div id="content">
+                <div class="container-fluid">
+                    <div class="d-flex justify-content-between align-items-center mb-4 mt-4">
+                        <div class="page-title-with-logo">
+                            <img src="img/depedlogo.jpg" alt="Adviser Logo" class="page-logo">
+                            <h2 class="h3 mb-0 text-gray-800">Advisers Dashboard</h2>
+                        </div>
+                        <div class="d-flex align-items-center">
+                            <div class="search-box">
+                                <input type="text" id="searchAdviser" placeholder="Search advisers..." autocomplete="off">
+                                <button type="button" class="clear-search" id="clearSearch" title="Clear search">
+                                    <span class="material-symbols-outlined">close</span>
+                                </button>
+                                <span class="search-icon">
+                                    <span class="material-symbols-outlined">search</span>
+                                </span>
+                            </div>
+                            <button type="button" class="btn btn-success me-2" data-bs-toggle="modal" data-bs-target="#importModal" style="box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
+                                <span class="material-symbols-outlined">upload_file</span> Import CSV
+                            </button>
+                            <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addAdviserModal" style="box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
+                                <span class="material-symbols-outlined">person_add</span> Add Adviser
+                            </button>
+                        </div>
+                    </div>
+
+                    <?php if (isset($_GET['status'])): ?>
+                    <div class="alert alert-success alert-dismissible fade show" role="alert">
+                        Adviser <?= htmlspecialchars($_GET['status']) ?> successfully!
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
                     <?php endif; ?>
-                  </tbody>
-                </table>
-              </div>
+
+                    <div class="table-card">
+                        <div class="table-responsive-custom">
+                            <table class="custom-table">
+                                <thead class="bg-gray-200 font-semibold">
+                                    <tr>
+                                        <th class="border px-3 py-2">#</th>
+                                        <th class="border px-3 py-2">Employee ID</th>
+                                        <th class="border px-3 py-2">Last Name</th>
+                                        <th class="border px-3 py-2">First Name</th>
+                                        <th class="border px-3 py-2">Middle Name</th>
+                                        <th class="border px-3 py-2">Suffix</th>
+                                        <th class="border px-3 py-2">Gender</th>
+                                        <th class="border px-3 py-2">Username</th>
+                                        <th class="border px-3 py-2">Password</th> <!-- NEW COLUMN -->
+                                        <th class="border px-3 py-2">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php
+                                    $counter = 1;
+                                    if ($advisers_result && $advisers_result->num_rows > 0):
+                                        while ($row = $advisers_result->fetch_assoc()):
+                                    ?>
+                                    <tr>
+                                        <td class="border px-3 py-2 font-medium"><?= $counter++ ?></td>
+                                        <td class="border px-3 py-2"><?= htmlspecialchars($row['employee_id']) ?></td>
+                                        <td class="border px-3 py-2 font-medium"><?= htmlspecialchars($row['lastname']) ?></td>
+                                        <td class="border px-3 py-2"><?= htmlspecialchars($row['firstname']) ?></td>
+                                        <td class="border px-3 py-2"><?= htmlspecialchars($row['middlename']) ?></td>
+                                        <td class="border px-3 py-2"><?= htmlspecialchars($row['suffix']) ?></td>
+                                        <td class="border px-3 py-2">
+                                            <span class="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full"><?= ucfirst($row['gender']) ?></span>
+                                        </td>
+                                        <td class="border px-3 py-2 font-mono text-sm"><?= htmlspecialchars($row['username']) ?></td>
+                                        <td class="border px-3 py-2 font-mono text-sm">
+                                            <?= htmlspecialchars($row['pass']) ?> <!-- SHOW PASSWORD -->
+                                        </td>
+                                        <td class="border px-3 py-2 actions-cell">
+                                            <button onclick="openEditAdviserModal(
+                                                <?= $row['adviser_id'] ?>,
+                                                '<?= htmlspecialchars($row['employee_id'], ENT_QUOTES) ?>',
+                                                '<?= htmlspecialchars($row['lastname'], ENT_QUOTES) ?>',
+                                                '<?= htmlspecialchars($row['firstname'], ENT_QUOTES) ?>',
+                                                '<?= htmlspecialchars($row['middlename'], ENT_QUOTES) ?>',
+                                                '<?= htmlspecialchars($row['suffix'], ENT_QUOTES) ?>',
+                                                '<?= htmlspecialchars($row['gender'], ENT_QUOTES) ?>',
+                                                '<?= htmlspecialchars($row['username'], ENT_QUOTES) ?>'
+                                            )" class="action-icon-btn edit-icon" title="Edit Adviser">
+                                                <span class="material-symbols-outlined">edit</span>
+                                            </button>
+                                            <form method="POST" class="d-inline" style="display:inline-block;" onsubmit="return confirm('Delete <?= htmlspecialchars($row['firstname'] . ' ' . $row['lastname']) ?>? This is permanent.');">
+                                                <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+                                                <input type="hidden" name="adviser_id" value="<?= $row['adviser_id'] ?>">
+                                                <button type="submit" name="delete_adviser" class="action-icon-btn delete-icon" title="Delete Adviser">
+                                                    <span class="material-symbols-outlined">delete</span>
+                                                </button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                    <?php endwhile; ?>
+                                    <?php else: ?>
+                                    <tr>
+                                        <td colspan="10" class="border px-3 py-12 text-center text-gray-500">
+                                            <span class="material-symbols-outlined" style="font-size:3rem; opacity:0.5;">group_off</span>
+                                            <div class="mt-2">No advisers found.</div>
+                                        </td>
+                                    </tr>
+                                    <?php endif; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
             </div>
-          </div><!-- container-fluid -->
-        </div><!-- content -->
-      </div><!-- content-wrapper -->
-    </div><!-- wrapper -->
+        </div>
+    </div>
 
     <!-- Add Adviser Modal -->
     <div class="modal fade" id="addAdviserModal" tabindex="-1" aria-labelledby="addAdviserModalLabel" aria-hidden="true">
-      <div class="modal-dialog">
-        <div class="modal-content">
-          <form method="post">
-            <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
-            <div class="modal-header">
-              <h5 class="modal-title" id="addAdviserModalLabel">Add Adviser</h5>
-              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form method="post">
+                    <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="addAdviserModalLabel">
+                            <span class="material-symbols-outlined me-2">person_add</span>Add New Adviser
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Employee ID <span class="text-danger">*</span></label>
+                            <input type="text" name="employee_id" class="form-control" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Last Name <span class="text-danger">*</span></label>
+                            <input type="text" name="lastname" class="form-control" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">First Name <span class="text-danger">*</span></label>
+                            <input type="text" name="firstname" class="form-control" required>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Middle Name</label>
+                                <input type="text" name="middlename" class="form-control">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Suffix</label>
+                                <input type="text" name="suffix" class="form-control">
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label fw-bold">Gender <span class="text-danger">*</span></label>
+                                <select name="gender" class="form-select" required>
+                                    <option value="">Select Gender</option>
+                                    <option value="male">Male</option>
+                                    <option value="female">Female</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label fw-bold">Username <span class="text-danger">*</span></label>
+                                <input type="text" name="username" class="form-control" required>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Password <span class="text-danger">*</span></label>
+                            <input type="password" name="pass" class="form-control" required minlength="6">
+                            <div class="form-text">Minimum 6 characters (stored as plain text)</div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" name="add_adviser" class="btn btn-primary">
+                            <span class="material-symbols-outlined me-1">save</span>Add Adviser
+                        </button>
+                    </div>
+                </form>
             </div>
-            <div class="modal-body">
-              <div class="mb-3">
-                <label class="form-label">Employee ID</label>
-                <input type="text" name="employee_id" class="form-control" required>
-              </div>
-              <div class="mb-3">
-                <label class="form-label">Last Name</label>
-                <input type="text" name="lastname" class="form-control" required>
-              </div>
-              <div class="mb-3">
-                <label class="form-label">First Name</label>
-                <input type="text" name="firstname" class="form-control" required>
-              </div>
-              <div class="mb-3">
-                <label class="form-label">Middle Name</label>
-                <input type="text" name="middlename" class="form-control">
-              </div>
-              <div class="mb-3">
-                <label class="form-label">Suffix</label>
-                <input type="text" name="suffix" class="form-control">
-              </div>
-              <div class="mb-3">
-                <label class="form-label">Gender</label>
-                <select name="gender" class="form-control" required>
-                  <option value="male">Male</option>
-                  <option value="female">Female</option>
-                </select>
-              </div>
-            </div>
-            <div class="modal-footer">
-              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-              <button type="submit" name="add_adviser" class="btn btn-primary">Add Adviser</button>
-            </div>
-          </form>
         </div>
-      </div>
     </div>
 
     <!-- Edit Adviser Modal -->
     <div class="modal fade" id="editAdviserModal" tabindex="-1" aria-labelledby="editAdviserModalLabel" aria-hidden="true">
-      <div class="modal-dialog">
-        <div class="modal-content">
-          <form method="post">
-            <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
-            <input type="hidden" id="edit_adviser_id" name="edit_adviser_id">
-            <div class="modal-header">
-              <h5 class="modal-title" id="editAdviserModalLabel">Edit Adviser</h5>
-              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form method="post">
+                    <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+                    <input type="hidden" id="edit_adviser_id" name="edit_adviser_id">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="editAdviserModalLabel">
+                            <span class="material-symbols-outlined me-2">edit</span>Edit Adviser
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Employee ID <span class="text-danger">*</span></label>
+                            <input type="text" id="edit_employee_id" name="edit_employee_id" class="form-control" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Last Name <span class="text-danger">*</span></label>
+                            <input type="text" id="edit_lastname" name="edit_lastname" class="form-control" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">First Name <span class="text-danger">*</span></label>
+                            <input type="text" id="edit_firstname" name="edit_firstname" class="form-control" required>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Middle Name</label>
+                                <input type="text" id="edit_middlename" name="edit_middlename" class="form-control">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Suffix</label>
+                                <input type="text" id="edit_suffix" name="edit_suffix" class="form-control">
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label fw-bold">Gender <span class="text-danger">*</span></label>
+                                <select id="edit_gender" name="edit_gender" class="form-select" required>
+                                    <option value="">Select Gender</option>
+                                    <option value="male">Male</option>
+                                    <option value="female">Female</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label fw-bold">Username <span class="text-danger">*</span></label>
+                                <input type="text" id="edit_username" name="edit_username" class="form-control" required>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">New Password (leave blank to keep current)</label>
+                            <input type="password" id="edit_pass" name="edit_pass" class="form-control" minlength="6">
+                            <div class="form-text">Stored as plain text.</div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" name="edit_adviser" class="btn btn-primary">
+                            <span class="material-symbols-outlined me-1">save</span>Save Changes
+                        </button>
+                    </div>
+                </form>
             </div>
-            <div class="modal-body">
-              <div class="mb-3">
-                <label class="form-label">Employee ID</label>
-                <input type="text" id="edit_employee_id" name="edit_employee_id" class="form-control" required>
-              </div>
-              <div class="mb-3">
-                <label class="form-label">Last Name</label>
-                <input type="text" id="edit_lastname" name="edit_lastname" class="form-control" required>
-              </div>
-              <div class="mb-3">
-                <label class="form-label">First Name</label>
-                <input type="text" id="edit_firstname" name="edit_firstname" class="form-control" required>
-              </div>
-              <div class="mb-3">
-                <label class="form-label">Middle Name</label>
-                <input type="text" id="edit_middlename" name="edit_middlename" class="form-control">
-              </div>
-              <div class="mb-3">
-                <label class="form-label">Suffix</label>
-                <input type="text" id="edit_suffix" name="edit_suffix" class="form-control">
-              </div>
-              <div class="mb-3">
-                <label class="form-label">Gender</label>
-                <select id="edit_gender" name="edit_gender" class="form-control" required>
-                  <option value="male">Male</option>
-                  <option value="female">Female</option>
-                </select>
-              </div>
-            </div>
-            <div class="modal-footer">
-              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-              <button type="submit" name="edit_adviser" class="btn btn-primary">Save Changes</button>
-            </div>
-          </form>
         </div>
-      </div>
     </div>
 
-    <!-- Import Adviser CSV Modal -->
+    <!-- Import CSV Modal -->
     <div class="modal fade" id="importModal" tabindex="-1" aria-labelledby="importModalLabel" aria-hidden="true">
-      <div class="modal-dialog">
-        <div class="modal-content">
-          <form method="post" enctype="multipart/form-data">
-            <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
-            <div class="modal-header">
-              <h5 class="modal-title" id="importModalLabel">Import Advisers from CSV</h5>
-              <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="importModalLabel">Import Advisers from CSV</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form method="post" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="adviser_csvfile" class="form-label">Select CSV File *</label>
+                            <input type="file" name="adviser_csvfile" id="adviser_csvfile" class="form-control" accept=".csv" required>
+                            <small class="text-muted">
+                                Max 5MB | Columns: <code>employee_id, lastname, firstname, middlename, suffix, gender, username, pass OR password</code><br>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        <button type="submit" name="import_advisers_csv" class="btn btn-primary">Upload & Import</button>
+                    </div>
+                </form>
             </div>
-            <div class="modal-body">
-              <div class="mb-3">
-                <label for="adviser_csvfile" class="form-label">Select CSV File *</label>
-                <input type="file" name="adviser_csvfile" id="adviser_csvfile" class="form-control" accept=".csv" required>
-                <small class="text-muted">Max 5MB | Columns: employee_id, lastname, firstname, middlename, suffix, gender</small>
-              </div>
-            </div>
-            <div class="modal-footer">
-              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-              <button type="submit" name="import_advisers_csv" class="btn btn-primary">Upload & Import</button>
-            </div>
-          </form>
         </div>
-      </div>
     </div>
-  </body>
+</body>
 </html>

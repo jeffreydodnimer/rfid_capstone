@@ -1,0 +1,5 @@
+2025-12-02T13:43:42+01:00 CSV Import Fatal Error: Cannot truncate a table referenced in a foreign key constraint (`rfid_capstone`.`sections`, CONSTRAINT `sections_ibfk_1` FOREIGN KEY (`adviser_id`) REFERENCES `rfid_capstone`.`advisers` (`adviser_id`))
+2025-12-02T13:44:02+01:00 CSV Import Fatal Error: Cannot truncate a table referenced in a foreign key constraint (`rfid_capstone`.`sections`, CONSTRAINT `sections_ibfk_1` FOREIGN KEY (`adviser_id`) REFERENCES `rfid_capstone`.`advisers` (`adviser_id`))
+2025-12-02T13:50:49+01:00 CSV Import Fatal Error: Unknown column 'password' in 'field list'
+2025-12-02T13:52:17+01:00 CSV Import Fatal Error: Unknown column 'password' in 'field list'
+2025-12-02T18:38:40+01:00 Delete Adviser Error: Cannot delete adviser. They are assigned to 1 section(s). Please reassign or delete sections first.

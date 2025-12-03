@@ -108,6 +108,16 @@ function isAttendanceAllowedToday(array $settings): bool
     return !empty($settings[$col]);
 }
 
+function getCurrentSchoolYear() {
+    $currentMonth = (int)date('m');
+    $currentYear = (int)date('Y');
+    if ($currentMonth >= 8) {
+        return $currentYear . '-' . ($currentYear + 1);
+    } else {
+        return ($currentYear - 1) . '-' . $currentYear;
+    }
+}
+
 // --- AJAX ENDPOINT FOR REAL-TIME STATUS POLLING ---
 if (isset($_GET['action']) && $_GET['action'] === 'get_status') {
     header('Content-Type: application/json');
@@ -173,7 +183,7 @@ $current_time_str = date('H:i:s');
 $current_date_str = date('Y-m-d');
 $current_day_name = date('l');
 $formatted_date = date('F j, Y');
-$current_school_year = '2024-2025';
+$current_school_year = getCurrentSchoolYear();
 
 // Fetch all settings for initial page load
 $time_settings = getTimeSettings($pdo);
