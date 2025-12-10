@@ -115,6 +115,7 @@ if (isset($_POST['add_enrollment'])) {
     // Sanitize inputs
     $lrn         = htmlspecialchars(trim($_POST['lrn']), ENT_QUOTES, 'UTF-8');
     $grade_level = htmlspecialchars(trim($_POST['grade_level']), ENT_QUOTES, 'UTF-8');
+    // Fix: Get section_id from the hidden input, not from section_name
     $section_id  = filter_var($_POST['section_id'], FILTER_VALIDATE_INT);
     $school_year = htmlspecialchars(trim($_POST['school_year']), ENT_QUOTES, 'UTF-8');
 
@@ -136,12 +137,12 @@ if (isset($_POST['add_enrollment'])) {
         $stmt->close();
 
         // Check if section exists
-        $stmt = $conn->prepare("SELECT 1 FROM sections WHERE section_id = ?");
-        $stmt->bind_param("i", $section_id);
+        $stmt = $conn->prepare("SELECT 1 FROM sections WHERE section_id = ? AND grade_level = ?");
+        $stmt->bind_param("is", $section_id, $grade_level);
         $stmt->execute();
         $stmt->store_result();
         if ($stmt->num_rows === 0) {
-            throw new Exception("Selected section not found.");
+            throw new Exception("Selected section not found for the chosen grade level.");
         }
         $stmt->close();
 
@@ -154,10 +155,11 @@ if (isset($_POST['add_enrollment'])) {
             throw new Exception("This student is already enrolled for the specified school year.");
         }
         $stmt->close();
-        // Inside the "Add Enrollment" handler
-$stmt = $conn->prepare("INSERT INTO enrollments (lrn, grade_level, section_id, school_year) VALUES (?, ?, ?, ?)");
-$stmt->bind_param("ssis", $lrn, $grade_level, $section_id, $school_year);
-$stmt->execute(); {
+        
+        // Insert enrollment
+        $stmt = $conn->prepare("INSERT INTO enrollments (lrn, grade_level, section_id, school_year) VALUES (?, ?, ?, ?)");
+        $stmt->bind_param("ssis", $lrn, $grade_level, $section_id, $school_year);
+        if (!$stmt->execute()) { // Added check for execution failure
             throw new Exception("Failed to add enrollment: " . $stmt->error);
         }
         $stmt->close();
@@ -179,6 +181,9 @@ $stmt->execute(); {
     }
 }
 
+
+
+
 /**
  * Handle Delete Enrollment
  */
@@ -199,11 +204,9 @@ if (isset($_POST['delete_enrollment'])) {
         }
         $stmt->close();
 
-        // Reset AUTO_INCREMENT to continue from last used ID
+        // Reset AUTO_INCREMENT
         $max_id = $conn->query("SELECT MAX(enrollment_id) AS max_id FROM enrollments")->fetch_assoc()['max_id'];
-        if ($max_id === null) {
-            $max_id = 0;
-        }
+        if ($max_id === null) $max_id = 0;
         $conn->query("ALTER TABLE enrollments AUTO_INCREMENT = " . ($max_id + 1));
 
         $conn->commit();
@@ -243,38 +246,31 @@ if (isset($_POST['edit_enrollment'])) {
         $stmt->bind_param("s", $lrn);
         $stmt->execute();
         $stmt->store_result();
-        if ($stmt->num_rows === 0) {
-            throw new Exception("LRN not found.");
-        }
+        if ($stmt->num_rows === 0) throw new Exception("LRN not found.");
         $stmt->close();
 
         // Check section exists
-        $stmt = $conn->prepare("SELECT 1 FROM sections WHERE section_id = ?");
-        $stmt->bind_param("i", $section_id);
+        $stmt = $conn->prepare("SELECT 1 FROM sections WHERE section_id = ? AND grade_level = ?");
+        $stmt->bind_param("is", $section_id, $grade_level);
         $stmt->execute();
         $stmt->store_result();
-        if ($stmt->num_rows === 0) {
-            throw new Exception("Selected section not found.");
-        }
+        if ($stmt->num_rows === 0) throw new Exception("Selected section not found for the chosen grade level.");
         $stmt->close();
 
-        // Prevent duplicate enrollment (for a different enrollment_id)
+        // Prevent duplicate enrollment
         $stmt = $conn->prepare("SELECT enrollment_id FROM enrollments WHERE lrn = ? AND school_year = ? AND enrollment_id != ?");
         $stmt->bind_param("ssi", $lrn, $school_year, $enrollment_id);
         $stmt->execute();
         $stmt->store_result();
-        if ($stmt->num_rows > 0) {
-            throw new Exception("Another enrollment for this student exists for this school year.");
-        }
+        if ($stmt->num_rows > 0) throw new Exception("Another enrollment for this student exists for this school year.");
         $stmt->close();
 
         // Update enrollment record
         $stmt = $conn->prepare("UPDATE enrollments SET lrn = ?, grade_level = ?, section_id = ?, school_year = ? WHERE enrollment_id = ?");
         $stmt->bind_param("ssisi", $lrn, $grade_level, $section_id, $school_year, $enrollment_id);
-        if (!$stmt->execute()) {
-            throw new Exception("Failed to update enrollment: " . $stmt->error);
-        }
+        if (!$stmt->execute()) throw new Exception("Failed to update enrollment: " . $stmt->error);
         $stmt->close();
+
         $conn->commit();
         echo "<script>alert('Enrollment updated successfully!'); window.location.href='enrollment.php?status=updated';</script>";
         exit();
@@ -290,37 +286,37 @@ if (isset($_POST['edit_enrollment'])) {
  * Expect CSV columns: lrn, grade_level, section_id, school_year
  */
 function safeTrimCSV($value) {
-    if (is_null($value) || is_array($value) || is_bool($value) || is_object($value)) {
-        return '';
-    }
+    if (is_null($value) || is_array($value) || is_bool($value) || is_object($value)) return '';
     return trim(preg_replace('/^\xEF\xBB\xBF/', '', (string)$value));
 }
+
 if (isset($_POST['import_enrollments_csv']) && isset($_FILES['enrollment_csvfile']) && $_FILES['enrollment_csvfile']['error'] === UPLOAD_ERR_OK) {
+    validate_csrf_token();
     $tmpPath  = $_FILES['enrollment_csvfile']['tmp_name'];
     $fileName = $_FILES['enrollment_csvfile']['name'];
     $fileExt  = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
+
     if ($fileExt !== 'csv') {
         echo "<script>alert('❌ Please upload a CSV file.');window.location.href='enrollment.php';</script>";
         exit();
     }
+
     if ($_FILES['enrollment_csvfile']['size'] > 5 * 1024 * 1024) {
         echo "<script>alert('❌ File size exceeds 5MB limit.');window.location.href='enrollment.php';</script>";
         exit();
     }
-    if ($conn->connect_error) {
-        error_log(date('c') . " DB Conn Error during CSV import: " . $conn->connect_error . "\n", 3, $enrollment_error_log);
-        echo "<script>alert('Database connection lost. Cannot import CSV.');window.location.href='enrollment.php';</script>";
-        exit();
-    }
+
     if (($handle = fopen($tmpPath, 'r')) !== false) {
         ini_set('auto_detect_line_endings', 1);
         $header = fgetcsv($handle, 2000, ",");
         $expected_headers = ['lrn', 'grade_level', 'section_id', 'school_year'];
+
         if (!is_array($header) || count($header) < count($expected_headers)) {
             fclose($handle);
             echo "<script>alert('❌ CSV must have these columns: lrn, grade_level, section_id, school_year');window.location.href='enrollment.php';</script>";
             exit();
         }
+
         // Map columns to indices
         $col_map = [];
         foreach ($expected_headers as $expected_header) {
@@ -338,6 +334,7 @@ if (isset($_POST['import_enrollments_csv']) && isset($_FILES['enrollment_csvfile
                 exit();
             }
         }
+
         $stmt = $conn->prepare("INSERT INTO enrollments (lrn, grade_level, section_id, school_year) VALUES (?, ?, ?, ?)");
         if (!$stmt) {
             fclose($handle);
@@ -345,25 +342,29 @@ if (isset($_POST['import_enrollments_csv']) && isset($_FILES['enrollment_csvfile
             echo "<script>alert('❌ Database error preparing CSV import.');window.location.href='enrollment.php';</script>";
             exit();
         }
+
         $rowCount = 0;
         $errors   = [];
         $row_num  = 1;
+
         while (($data = fgetcsv($handle, 2000, ",")) !== false) {
             $row_num++;
-            if (!is_array($data) || count(array_filter($data)) === 0 || count($data) < count($expected_headers)) {
-                continue;
-            }
+            if (!is_array($data) || count(array_filter($data)) === 0 || count($data) < count($expected_headers)) continue;
+
             $lrn_csv         = safeTrimCSV($data[$col_map['lrn']] ?? '');
             $grade_level_csv = safeTrimCSV($data[$col_map['grade_level']] ?? '');
             $section_id_csv  = safeTrimCSV($data[$col_map['section_id']] ?? '');
             $school_year_csv = safeTrimCSV($data[$col_map['school_year']] ?? '');
             $valid_row = true;
+
             if (empty($lrn_csv) || empty($grade_level_csv) || empty($section_id_csv) || empty($school_year_csv)) {
                 $errors[] = "Row {$row_num}: Missing required fields.";
                 $valid_row = false;
             }
+
             $section_id_val = (int)$section_id_csv;
-            // Check if student exists
+
+            // Check student exists
             if ($valid_row) {
                 $stmt_check = $conn->prepare("SELECT COUNT(*) AS count FROM students WHERE lrn = ?");
                 if ($stmt_check) {
@@ -380,7 +381,8 @@ if (isset($_POST['import_enrollments_csv']) && isset($_FILES['enrollment_csvfile
                     $valid_row = false;
                 }
             }
-            // Check if section exists
+
+            // Check section exists
             if ($valid_row) {
                 $stmt_check = $conn->prepare("SELECT COUNT(*) AS count FROM sections WHERE section_id = ?");
                 if ($stmt_check) {
@@ -397,6 +399,7 @@ if (isset($_POST['import_enrollments_csv']) && isset($_FILES['enrollment_csvfile
                     $valid_row = false;
                 }
             }
+
             // Prevent duplicate enrollment
             if ($valid_row) {
                 $stmt_check = $conn->prepare("SELECT COUNT(*) AS count FROM enrollments WHERE lrn = ? AND school_year = ?");
@@ -414,23 +417,23 @@ if (isset($_POST['import_enrollments_csv']) && isset($_FILES['enrollment_csvfile
                     $valid_row = false;
                 }
             }
+
             if ($valid_row) {
                 $stmt->bind_param("ssis", $lrn_csv, $grade_level_csv, $section_id_val, $school_year_csv);
                 if (!$stmt->execute()) {
-                    $errors[] = "Row {$row_num}: DB error during insert.";
+                    $errors[] = "Row {$row_num}: DB error during insert: " . $stmt->error;
                 } else {
                     $rowCount++;
                 }
             }
         }
+
         fclose($handle);
         $stmt->close();
 
         // Reset AUTO_INCREMENT after CSV import
         $max_id = $conn->query("SELECT MAX(enrollment_id) AS max_id FROM enrollments")->fetch_assoc()['max_id'];
-        if ($max_id === null) {
-            $max_id = 0;
-        }
+        if ($max_id === null) $max_id = 0;
         $conn->query("ALTER TABLE enrollments AUTO_INCREMENT = " . ($max_id + 1));
 
         $message = "✓ CSV Import Complete\nSuccessfully imported: {$rowCount} enrollment records\n";
@@ -447,6 +450,7 @@ if (isset($_POST['import_enrollments_csv']) && isset($_FILES['enrollment_csvfile
         exit();
     }
 }
+
 
 /**
  * Fetch enrollment records for display
@@ -482,6 +486,8 @@ if (!$enrollments_result) {
     ];
 }
 ?>
+
+
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -633,100 +639,102 @@ if (!$enrollments_result) {
               </div>
             </div>
 
-            <!-- Status Alerts -->
-            <?php if (isset($_GET['status'])): ?>
-              <div class="alert alert-success alert-dismissible fade show" role="alert">
-                <?php
-                  switch ($_GET['status']) {
-                    case 'added':   echo 'Enrollment added successfully!'; break;
-                    case 'updated': echo 'Enrollment updated successfully!'; break;
-                    case 'deleted': echo 'Enrollment deleted successfully!'; break;
-                  }
-                ?>
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-              </div>
-            <?php endif; ?>
+           <!-- Status Alerts -->
+<?php if (isset($_GET['status'])): ?>
+  <div class="alert alert-success alert-dismissible fade show" role="alert">
+    <?php
+      switch ($_GET['status']) {
+        case 'added':   echo 'Enrollment added successfully!'; break;
+        case 'updated': echo 'Enrollment updated successfully!'; break;
+        case 'deleted': echo 'Enrollment deleted successfully!'; break;
+      }
+    ?>
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+  </div>
+<?php endif; ?>
 
-            <!-- Enrollment Table -->
-            <div class="table-card">
-              <div class="table-responsive-custom">
-                <table class="custom-table">
-                  <thead class="bg-gray-200 font-semibold">
-                    <tr>
-                      <th class="border px-3 py-2">No.</th>
-                      <th class="border px-3 py-2">LRN</th>
-                      <th class="border px-3 py-2">Student Name</th>
-                      <th class="border px-3 py-2">Section</th>
-                      <th class="border px-3 py-2">Grade Level</th>
-                      <th class="border px-3 py-2">Adviser</th>
-                      <th class="border px-3 py-2">School Year</th>
-                      <th class="border px-3 py-2">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <?php
-                      $counter = 1;
-                      if ($enrollments_result->num_rows > 0):
-                        while ($row = $enrollments_result->fetch_assoc()):
-                          $fn = $row['student_firstname'];
-                          $mn = $row['student_middlename'];
-                          $ln = $row['student_lastname'];
-                          $student_fullname = htmlspecialchars($ln);
-                          if (!empty($fn) && $fn !== 'N/A') {
-                              $student_fullname .= ', ' . htmlspecialchars($fn);
-                          }
-                          if (!empty($mn)) {
-                              $student_fullname .= ' ' . htmlspecialchars(substr($mn, 0, 1)) . '.';
-                          }
-                    ?>
-                    <tr class="hover:bg-gray-50">
-                      <td class="border px-3 py-2"><?= $counter++ ?></td>
-                      <td class="border px-3 py-2"><?= htmlspecialchars($row['lrn']) ?></td>
-                      <td class="border px-3 py-2"><?= $student_fullname ?></td>
-                      <td class="border px-3 py-2"><?= htmlspecialchars($row['section_name']) ?></td>
-                      <td class="border px-3 py-2"><?= htmlspecialchars($row['grade_level']) ?></td>
-                      <td class="border px-3 py-2"><?= htmlspecialchars($row['adviser_name']) ?></td>
-                      <td class="border px-3 py-2"><?= htmlspecialchars($row['school_year']) ?></td>
-                      <td class="border px-3 py-2 actions-cell">
-                        <button onclick='openEditEnrollmentModal(<?= json_encode([
-                          "enrollment_id" => $row["enrollment_id"],
-                          "lrn" => $row["lrn"],
-                          "grade_level" => $row["grade_level"],
-                          "section_id" => $row["section_id"],
-                          "school_year" => $row["school_year"]
-                        ]) ?>)' class="action-icon-btn edit-icon" title="Edit Enrollment">
-                          <span class="material-symbols-outlined">edit</span>
-                        </button>
-                        <form method="POST" class="inline" onsubmit="return confirm('Remove enrollment for <?= $student_fullname ?>?');">
-                          <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
-                          <input type="hidden" name="enrollment_id" value="<?= htmlspecialchars($row['enrollment_id']) ?>">
-                          <button type="submit" name="delete_enrollment" class="action-icon-btn delete-icon" title="Delete Enrollment">
-                            <span class="material-symbols-outlined">delete</span>
-                          </button>
-                        </form>
-                      </td>
-                    </tr>
-                    <?php endwhile; else: ?>
-                    <tr>
-                      <td colspan="8" class="border px-3 py-2 text-center text-gray-500">No enrollment records found.</td>
-                    </tr>
-                    <?php endif; ?>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div><!-- container-fluid -->
-        </div><!-- content -->
+<!-- Enrollment Table -->
+<div class="table-card">
+  <div class="table-responsive-custom">
+    <table class="custom-table">
+      <thead class="bg-gray-200 font-semibold">
+        <tr>
+          <th class="border px-3 py-2">No.</th>
+          <th class="border px-3 py-2">LRN</th>
+          <th class="border px-3 py-2">Student Name</th>
+          <th class="border px-3 py-2">Section</th>
+          <th class="border px-3 py-2">Grade Level</th>
+          <th class="border px-3 py-2">Adviser</th>
+          <th class="border px-3 py-2">School Year</th>
+          <th class="border px-3 py-2">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <?php
+$counter = 1;
+if ($enrollments_result->num_rows > 0):
+    while ($row = $enrollments_result->fetch_assoc()):
+        $fn = $row['student_firstname'];
+        $mn = $row['student_middlename'];
+        $ln = $row['student_lastname'];
+        $student_fullname = htmlspecialchars($ln);
+        if (!empty($fn) && $fn !== 'N/A') {
+            $student_fullname .= ', ' . htmlspecialchars($fn);
+        }
+        if (!empty($mn)) {
+            $student_fullname .= ' ' . htmlspecialchars(substr($mn, 0, 1)) . '.';
+        }
+?>
 
-        <?php include 'footer.php'; ?>
-      </div><!-- content-wrapper -->
-    </div><!-- wrapper -->
+<tr class="hover:bg-gray-50">
+  <td class="border px-3 py-2"><?= $counter++ ?></td>
+  <td class="border px-3 py-2"><?= htmlspecialchars($row['lrn']) ?></td>
+  <td class="border px-3 py-2"><?= $student_fullname ?></td>
+  <td class="border px-3 py-2"><?= htmlspecialchars($row['section_name']) ?></td>
+  <td class="border px-3 py-2"><?= htmlspecialchars($row['grade_level']) ?></td>
+  <td class="border px-3 py-2"><?= htmlspecialchars($row['adviser_name']) ?></td>
+  <td class="border px-3 py-2"><?= htmlspecialchars($row['school_year']) ?></td>
+  <td class="border px-3 py-2 actions-cell">
+    <button onclick='openEditEnrollmentModal(<?= json_encode([
+      "enrollment_id" => $row["enrollment_id"],
+      "lrn" => $row["lrn"],
+      "grade_level" => $row["grade_level"],
+      "section_id" => $row["section_id"],
+      "school_year" => $row["school_year"]
+    ]) ?>)' class="action-icon-btn edit-icon" title="Edit Enrollment">
+      <span class="material-symbols-outlined">edit</span>
+    </button>
+    <form method="POST" class="inline" onsubmit="return confirm('Remove enrollment for <?= $student_fullname ?>?');">
+      <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+      <input type="hidden" name="enrollment_id" value="<?= htmlspecialchars($row['enrollment_id']) ?>">
+      <button type="submit" name="delete_enrollment" class="action-icon-btn delete-icon" title="Delete Enrollment">
+        <span class="material-symbols-outlined">delete</span>
+      </button>
+    </form>
+  </td>
+</tr>
+<?php endwhile; else: ?>
+<tr>
+  <td colspan="8" class="border px-3 py-2 text-center text-gray-500">No enrollment records found.</td>
+</tr>
+<?php endif; ?>
+      </tbody>
+    </table>
+  </div>
+</div>
+</div><!-- container-fluid -->
+</div><!-- content -->
 
-    <a class="scroll-to-top rounded" href="#page-top">
-      <i class="fas fa-angle-up"></i>
-    </a>
+<?php include 'footer.php'; ?>
+</div><!-- content-wrapper -->
+</div><!-- wrapper -->
 
-    <!-- Add Enrollment Modal -->
+<a class="scroll-to-top rounded" href="#page-top">
+  <i class="fas fa-angle-up"></i>
+</a>
+
+
+<!-- Add Enrollment Modal -->
 <div class="modal fade" id="addEnrollmentModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
@@ -737,22 +745,52 @@ if (!$enrollments_result) {
       <div class="modal-body">
         <form method="post" id="enrollmentForm">
           <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+
           <div class="mb-3">
             <label for="lrn_input" class="form-label">Student LRN *</label>
-            <input type="text" id="lrn_input" name="lrn" class="form-control" placeholder="Enter LRN" required>
+            <input type="text" list="studentLrnList" id="lrn_input" name="lrn" class="form-control" placeholder="Enter LRN or select student" required>
+            <datalist id="studentLrnList">
+                <?php foreach ($all_students_for_dropdown as $student): ?>
+                    <option value="<?= htmlspecialchars($student['lrn']) ?>" label="<?= $student['name'] ?> (LRN: <?= $student['lrn'] ?>)"></option>
+                <?php endforeach; ?>
+            </datalist>
           </div>
+
           <div class="mb-3">
-            <label for="add_grade_level" class="form-label">Grade Level *</label>
-            <input type="text" id="add_grade_level" name="grade_level" class="form-control" placeholder="Enter Grade Level" required>
+            <label for="add_grade_level_input" class="form-label">Grade Level *</label>
+            <input type="text" list="add_grade_level_list" id="add_grade_level_input" name="grade_level" class="form-control" placeholder="Type or select grade level" required>
+            <datalist id="add_grade_level_list">
+                <?php 
+                  // Get unique grade levels from database
+                  $stmt = $conn->prepare("SELECT DISTINCT grade_level FROM sections ORDER BY grade_level");
+                  if ($stmt) {
+                    $stmt->execute();
+                    $result = $stmt->get_result();
+                    while ($row = $result->fetch_assoc()): 
+                ?>
+                    <option value="<?= htmlspecialchars($row['grade_level']) ?>"></option>
+                <?php 
+                    endwhile;
+                    $stmt->close();
+                  }
+                ?>
+            </datalist>
+            <small class="text-danger" id="add_grade_level_error" style="display: none;"></small>
           </div>
+
           <div class="mb-3">
-            <label for="add_section_id" class="form-label">Section *</label>
-            <input type="text" id="add_section_id" name="section_id" class="form-control" placeholder="Enter Section" required>
+            <label for="add_section_input" class="form-label">Section *</label>
+            <input type="text" list="add_section_list" id="add_section_input" name="section_name" class="form-control" placeholder="Type or select section" required>
+            <datalist id="add_section_list"></datalist>
+            <input type="hidden" id="add_section_id" name="section_id">
+            <small class="text-danger" id="add_section_error" style="display: none;"></small>
           </div>
+
           <div class="mb-3">
             <label for="school_year_add" class="form-label">School Year *</label>
             <input type="text" id="school_year_add" name="school_year" class="form-control" maxlength="9" required value="<?= getCurrentSchoolYear() ?>">
           </div>
+
           <div class="text-center">
             <button type="submit" name="add_enrollment" class="btn btn-primary px-4 py-2">Enroll Student</button>
           </div>
@@ -762,7 +800,11 @@ if (!$enrollments_result) {
   </div>
 </div>
 
-    <!-- Edit Enrollment Modal -->
+
+
+
+
+<!-- Edit Enrollment Modal -->
 <div class="modal fade" id="editEnrollmentModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
@@ -771,25 +813,49 @@ if (!$enrollments_result) {
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
-        <form method="post">
+        <form method="post" id="editEnrollmentForm">
           <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
           <input type="hidden" id="edit_enrollment_id" name="edit_enrollment_id">
+
           <div class="mb-3">
             <label for="edit_lrn_input" class="form-label">Student LRN *</label>
-            <input type="text" id="edit_lrn_input" name="edit_lrn_input" class="form-control" placeholder="Enter LRN" required>
+            <input type="text" list="studentLrnList" id="edit_lrn_input" name="edit_lrn_input" class="form-control" placeholder="Enter LRN" required>
           </div>
+
           <div class="mb-3">
-            <label for="edit_grade_level" class="form-label">Grade Level *</label>
-            <input type="text" id="edit_grade_level" name="edit_grade_level" class="form-control" placeholder="Enter Grade Level" required>
+            <label for="edit_grade_level_input" class="form-label">Grade Level *</label>
+            <input type="text" list="edit_grade_level_list" id="edit_grade_level_input" name="edit_grade_level" class="form-control" placeholder="Type or select grade level" required>
+            <datalist id="edit_grade_level_list">
+                <?php 
+                  $stmt = $conn->prepare("SELECT DISTINCT grade_level FROM sections ORDER BY grade_level");
+                  if ($stmt) {
+                    $stmt->execute();
+                    $result = $stmt->get_result();
+                    while ($row = $result->fetch_assoc()): 
+                ?>
+                    <option value="<?= htmlspecialchars($row['grade_level']) ?>"></option>
+                <?php 
+                    endwhile;
+                    $stmt->close();
+                  }
+                ?>
+            </datalist>
+            <small class="text-danger" id="edit_grade_level_error" style="display: none;"></small>
           </div>
+
           <div class="mb-3">
-            <label for="edit_section_id" class="form-label">Section *</label>
-            <input type="text" id="edit_section_id" name="edit_section_id" class="form-control" placeholder="Enter Section" required>
+            <label for="edit_section_input" class="form-label">Section *</label>
+            <input type="text" list="edit_section_list" id="edit_section_input" name="section_name" class="form-control" placeholder="Type or select section" required>
+            <datalist id="edit_section_list"></datalist>
+            <input type="hidden" id="edit_section_id" name="edit_section_id">
+            <small class="text-danger" id="edit_section_error" style="display: none;"></small>
           </div>
+
           <div class="mb-3">
             <label for="edit_school_year" class="form-label">School Year *</label>
             <input type="text" id="edit_school_year" name="edit_school_year" class="form-control" maxlength="9" required>
           </div>
+
           <div class="text-center">
             <button type="submit" name="edit_enrollment" class="btn btn-primary px-4 py-2">Save Changes</button>
           </div>
@@ -799,116 +865,186 @@ if (!$enrollments_result) {
   </div>
 </div>
 
-    <!-- Import Enrollment CSV Modal -->
-    <div class="modal fade" id="importModal" tabindex="-1" aria-labelledby="importModalLabel" aria-hidden="true">
-      <div class="modal-dialog">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title" id="importModalLabel">Import Enrollments from CSV</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-          </div>
-          <form method="post" enctype="multipart/form-data">
-            <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
-            <div class="modal-body">
-              <div class="mb-3">
-                <label for="enrollment_csvfile" class="form-label">Select CSV File *</label>
-                <input type="file" name="enrollment_csvfile" id="enrollment_csvfile" class="form-control" accept=".csv" required>
-                <small class="text-muted">Max 5MB | Columns: lrn, grade_level, section_id, school_year</small>
-              </div>
-            </div>
-            <div class="modal-footer">
-              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-              <button type="submit" name="import_enrollments_csv" class="btn btn-primary">Upload & Import</button>
-            </div>
-          </form>
-        </div>
+<!-- Import Enrollment CSV Modal -->
+<div class="modal fade" id="importModal" tabindex="-1" aria-labelledby="importModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="importModalLabel">Import Enrollments from CSV</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
+      <form method="post" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label for="enrollment_csvfile" class="form-label">Select CSV File *</label>
+            <input type="file" name="enrollment_csvfile" id="enrollment_csvfile" class="form-control" accept=".csv" required>
+            <small class="text-muted">Max 5MB | Columns: lrn, grade_level, section_id, school_year</small>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          <button type="submit" name="import_enrollments_csv" class="btn btn-primary">Upload & Import</button>
+        </div>
+      </form>
     </div>
+  </div>
+</div>
 
-    <script>
-      // Pass sections data to JavaScript
-      const allSectionsData = <?= $all_sections_json ?>;
 
-      /**
-       * Populate section dropdown based on selected grade level.
-       * Optionally pre-select a section if selectedSectionId is provided.
-       */
-      function populateSections(gradeLevelSelectId, sectionSelectId, selectedSectionId = null) {
-        const gradeLevel = document.getElementById(gradeLevelSelectId).value;
-        const sectionSelect = document.getElementById(sectionSelectId);
-        sectionSelect.innerHTML = '<option value="">Select Section</option>';
-        if (gradeLevel) {
-          const filteredSections = allSectionsData.filter(section => section.grade_level === gradeLevel);
-          filteredSections.sort((a, b) => a.section_name.localeCompare(b.section_name));
-          filteredSections.forEach(section => {
-            const option = document.createElement('option');
-            option.value = section.section_id;
-            const adviserDisplay = section.adviser_fullname && section.adviser_fullname !== 'N/A' ? ` (Adviser: ${section.adviser_fullname})` : '';
-            option.textContent = `${section.section_name}${adviserDisplay}`;
-            if (selectedSectionId !== null && +section.section_id === +selectedSectionId) {
-              option.selected = true;
-            }
-            sectionSelect.appendChild(option);
-          });
+<script>
+  const allSectionsData = <?= $all_sections_json ?>;
+
+  // Get unique grade levels
+  const getAvailableGradeLevels = () => [...new Set(allSectionsData.map(s => s.grade_level))].sort();
+
+  // Populate section datalist based on grade level
+  function populateSectionList(gradeLevel, datalistId, sectionInputId, hiddenSectionIdId) {
+    const datalist = document.getElementById(datalistId);
+    const sectionInput = document.getElementById(sectionInputId);
+    const hiddenId = document.getElementById(hiddenSectionIdId);
+
+    datalist.innerHTML = '';
+    hiddenId.value = '';
+    sectionInput.value = '';
+
+    if (!gradeLevel) return;
+
+    const filteredSections = allSectionsData.filter(
+      s => s.grade_level.toLowerCase() === gradeLevel.toLowerCase()
+    );
+
+    const errorMsgId = datalistId.includes('add') ? 'add_section_error' : 'edit_section_error';
+
+    if (filteredSections.length === 0) {
+      document.getElementById(errorMsgId).textContent = `No sections available for "${gradeLevel}"`;
+      document.getElementById(errorMsgId).style.display = 'block';
+      return;
+    } else {
+      document.getElementById(errorMsgId).style.display = 'none';
+    }
+
+    filteredSections.forEach(section => {
+      const option = document.createElement('option');
+      option.value = section.section_name;
+      option.dataset.sectionId = section.section_id;
+      datalist.appendChild(option);
+    });
+  }
+
+  // Handle section input change
+  function handleSectionInput(sectionInputId, datalistId, hiddenSectionIdId) {
+    const sectionInput = document.getElementById(sectionInputId);
+    const datalist = document.getElementById(datalistId);
+    const hiddenId = document.getElementById(hiddenSectionIdId);
+    const errorMsgId = sectionInputId.includes('add') ? 'add_section_error' : 'edit_section_error';
+
+    sectionInput.addEventListener('input', function() {
+      const selectedOption = Array.from(datalist.options).find(
+        o => o.value.toLowerCase() === this.value.toLowerCase()
+      );
+
+      if (selectedOption) {
+        hiddenId.value = selectedOption.dataset.sectionId;
+        document.getElementById(errorMsgId).style.display = 'none';
+      } else {
+        hiddenId.value = '';
+        if (this.value) {
+          document.getElementById(errorMsgId).textContent = 'Please select a valid section from the list';
+          document.getElementById(errorMsgId).style.display = 'block';
+        } else {
+          document.getElementById(errorMsgId).style.display = 'none';
         }
       }
+    });
+  }
 
-      /**
-       * Populate Edit Enrollment Modal fields.
-       */
-      function openEditEnrollmentModal(data) {
-        document.getElementById('edit_enrollment_id').value = data.enrollment_id;
-        document.getElementById('edit_lrn_input').value = data.lrn;
-        document.getElementById('edit_school_year').value = data.school_year;
-        document.getElementById('edit_grade_level').value = data.grade_level;
-        populateSections('edit_grade_level', 'edit_section_id', data.section_id);
-        var editModal = new bootstrap.Modal(document.getElementById('editEnrollmentModal'));
-        editModal.show();
+  // Populate Edit Enrollment Modal
+  function openEditEnrollmentModal(data) {
+    document.getElementById('edit_enrollment_id').value = data.enrollment_id;
+    document.getElementById('edit_lrn_input').value = data.lrn;
+    document.getElementById('edit_school_year').value = data.school_year;
+    document.getElementById('edit_grade_level_input').value = data.grade_level;
+
+    populateSectionList(data.grade_level, 'edit_section_list', 'edit_section_input', 'edit_section_id');
+
+    const section = allSectionsData.find(s => s.section_id == data.section_id);
+    if (section) document.getElementById('edit_section_input').value = section.section_name;
+
+    const editModal = new bootstrap.Modal(document.getElementById('editEnrollmentModal'));
+    editModal.show();
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    // Add Enrollment listeners
+    const addGradeLevelInput = document.getElementById('add_grade_level_input');
+    if (addGradeLevelInput) {
+      addGradeLevelInput.addEventListener('input', () =>
+        populateSectionList(addGradeLevelInput.value, 'add_section_list', 'add_section_input', 'add_section_id')
+      );
+    }
+
+    // Edit Enrollment listeners
+    const editGradeLevelInput = document.getElementById('edit_grade_level_input');
+    if (editGradeLevelInput) {
+      editGradeLevelInput.addEventListener('input', () =>
+        populateSectionList(editGradeLevelInput.value, 'edit_section_list', 'edit_section_input', 'edit_section_id')
+      );
+    }
+
+    handleSectionInput('add_section_input', 'add_section_list', 'add_section_id');
+    handleSectionInput('edit_section_input', 'edit_section_list', 'edit_section_id');
+
+    // Reset Add Enrollment form on modal close
+    document.getElementById('addEnrollmentModal').addEventListener('hidden.bs.modal', () => {
+      document.getElementById('enrollmentForm').reset();
+      document.getElementById('add_section_id').value = '';
+      document.getElementById('add_section_list').innerHTML = '';
+      document.getElementById('add_grade_level_error').style.display = 'none';
+      document.getElementById('add_section_error').style.display = 'none';
+    });
+
+    // Enrollment table search
+    const searchInput = $('#searchEnrollment');
+    const clearBtn = $('#clearSearch');
+    const tableRows = $('.custom-table tbody tr');
+
+    searchInput.on('input', function() {
+      const term = $(this).val().toLowerCase().trim();
+      term.length > 0 ? clearBtn.addClass('show') : clearBtn.removeClass('show');
+
+      let visibleCount = 0;
+      tableRows.each(function() {
+        const rowText = $(this).text().toLowerCase();
+        if (rowText.includes(term)) { $(this).show(); visibleCount++; }
+        else { $(this).hide(); }
+      });
+
+      if (visibleCount === 0 && term.length > 0 && $('#noResults').length === 0) {
+        $('.custom-table tbody').append('<tr id="noResults"><td colspan="8" class="border px-3 py-2 text-center text-gray-500"><span class="material-symbols-outlined">search_off</span> No enrollments found</td></tr>');
+      } else { $('#noResults').remove(); }
+    });
+
+    clearBtn.on('click', function() {
+      searchInput.val('');
+      clearBtn.removeClass('show');
+      tableRows.show();
+      $('#noResults').remove();
+      searchInput.focus();
+    });
+
+    // Auto-dismiss alerts
+    setTimeout(() => {
+      $(".alert").alert('close');
+      if (window.history.replaceState) {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('status');
+        window.history.replaceState({ path: url.href }, '', url.href);
       }
+    }, 5000);
+  });
+</script>
 
-      // Reset Add Enrollment form on modal close
-      document.getElementById('addEnrollmentModal').addEventListener('hidden.bs.modal', function (){
-        document.getElementById('enrollmentForm').reset();
-        document.getElementById('add_section_id').innerHTML = '<option value="">Select Grade Level first</option>';
-      });
 
-      // Search functionality for enrollment table
-      $(document).ready(function(){
-        const searchInput = $('#searchEnrollment');
-        const clearBtn = $('#clearSearch');
-        const tableRows = $('.custom-table tbody tr');
-        searchInput.on('input', function(){
-          const term = $(this).val().toLowerCase().trim();
-          if (term.length > 0) { clearBtn.addClass('show'); } else { clearBtn.removeClass('show'); }
-          let visibleCount = 0;
-          tableRows.each(function(){
-            const rowText = $(this).text().toLowerCase();
-            if (rowText.includes(term)) { $(this).show(); visibleCount++; }
-            else { $(this).hide(); }
-          });
-          if (visibleCount === 0 && term.length > 0 && $('#noResults').length === 0) {
-            $('.custom-table tbody').append('<tr id="noResults"><td colspan="8" class="border px-3 py-2 text-center text-gray-500"><span class="material-symbols-outlined" style="font-size:1.2rem;">search_off</span> No enrollments found matching "' + term + '"</td></tr>');
-          } else { $('#noResults').remove(); }
-        });
-        clearBtn.on('click', function(){
-          searchInput.val('');
-          clearBtn.removeClass('show');
-          tableRows.show();
-          $('#noResults').remove();
-          searchInput.focus();
-        });
-        searchInput.on('keydown', function(e){ if(e.key==='Escape'){ clearBtn.click(); } });
-
-        // Auto-dismiss alerts and clean URL
-        setTimeout(function(){
-          $(".alert").alert('close');
-          if (window.history.replaceState){
-            const url = new URL(window.location.href);
-            url.searchParams.delete('status');
-            window.history.replaceState({path: url.href}, '', url.href);
-          }
-        }, 5000);
-      });
-    </script>
-  </body>
+</body>
 </html>

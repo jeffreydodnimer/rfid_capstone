@@ -39,7 +39,7 @@ function sendSMS($studentName, $actionType, $time, $phone)
     }
     
     $parameters = array(
-        'apikey' => '', 
+        'apikey' => 'f10b39b25216155081988863eb8815db', // --- IMPORTANT: ADD YOUR SEMAPHORE API KEY HERE ---
         'number' => $phone, 
         'message' => $message,
         'sendername' => 'RNCTLCI'
@@ -52,7 +52,6 @@ function sendSMS($studentName, $actionType, $time, $phone)
     
     $output = curl_exec($ch);
     
-    // Log for debugging (optional)
     if (curl_error($ch)) {
         error_log("SMS Curl error: " . curl_error($ch));
     } else {
@@ -67,14 +66,13 @@ function sendSMS($studentName, $actionType, $time, $phone)
 // Get time settings from database (with defaults)
 function getTimeSettings(PDO $pdo)
 {
-    // Prefer id=1, fallback to the first row if not present
     $stmt = $pdo->query("SELECT * FROM time_settings WHERE id = 1");
     $row = $stmt->fetch();
     if (!$row) {
         $stmt = $pdo->query("SELECT * FROM time_settings ORDER BY id ASC LIMIT 1");
         $row = $stmt->fetch();
     }
-    // Define default day settings (Mon-Fri allowed, Sat/Sun disabled)
+
     $default_settings = [
         'morning_start' => '06:00:00',
         'morning_end' => '09:00:00',
@@ -91,17 +89,14 @@ function getTimeSettings(PDO $pdo)
     ];
 
     if ($row) {
-        // Merge with defaults to ensure all keys exist
         return array_merge($default_settings, $row);
     }
-    // If no settings row at all, return the full default set
     return $default_settings;
 }
 
 // Check if attendance is allowed for the current day based on settings
 function isAttendanceAllowedToday(array $settings): bool
 {
-    // PHP's date('N') returns 1 (for Monday) through 7 (for Sunday)
     $dow = (int) date('N');
     $map = [1 => 'allow_mon', 2 => 'allow_tue', 3 => 'allow_wed', 4 => 'allow_thu', 5 => 'allow_fri', 6 => 'allow_sat', 7 => 'allow_sun'];
     $col = $map[$dow];
@@ -160,7 +155,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_status') {
     exit;
 }
 
-// --- MAIN PAGE LOGIC (IF NOT an 'action=get_status' request) ---
+// --- MAIN PAGE LOGIC ---
 
 $pdo = getDbConnection($host, $db_name, $username, $password);
 if (!$pdo) {
@@ -169,7 +164,6 @@ if (!$pdo) {
 
 date_default_timezone_set('Asia/Manila');
 
-// Initialize variables for the page
 $message = '';
 $student_info = null;
 $attendance_recorded = false;
@@ -177,7 +171,6 @@ $last_action_time = '';
 $last_action_type = '';
 $last_status = '';
 
-// Get current datetime details for display and logic
 $current_datetime_str = date('Y-m-d H:i:s');
 $current_time_str = date('H:i:s');
 $current_date_str = date('Y-m-d');
@@ -185,10 +178,8 @@ $current_day_name = date('l');
 $formatted_date = date('F j, Y');
 $current_school_year = getCurrentSchoolYear();
 
-// Fetch all settings for initial page load
 $time_settings = getTimeSettings($pdo);
 
-// Parse and format time settings for display
 $morning_start = $time_settings['morning_start'];
 $morning_end = $time_settings['morning_end'];
 $morning_late_threshold = $time_settings['morning_late_threshold'];
@@ -200,11 +191,11 @@ $morning_end_display = date('h:i A', strtotime($morning_end));
 $afternoon_start_display = date('h:i A', strtotime($afternoon_start));
 $afternoon_end_display = date('h:i A', strtotime($afternoon_end));
 
-// Check initial system status for page load
 $is_day_allowed = isAttendanceAllowedToday($time_settings);
 $is_morning_session = ($current_time_str >= $morning_start && $current_time_str <= $morning_end);
 $is_afternoon_session = ($current_time_str >= $afternoon_start && $current_time_str <= $afternoon_end);
 $system_active = ($is_morning_session || $is_afternoon_session) && $is_day_allowed;
+
 
 // Handle RFID Scan (POST request)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['rfid_uid'])) {
@@ -261,7 +252,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['rfid_uid'])) {
                         $stmt_insert = $pdo->prepare("INSERT INTO attendance (lrn, enrollment_id, date, time_in, status) VALUES (:lrn, :enrollment_id, :date, :time_in, :status)");
                         
                         if ($stmt_insert->execute(['lrn' => $student_lrn, 'enrollment_id' => $enrollment_id, 'date' => $current_date_str, 'time_in' => $current_datetime_str, 'status' => $status])) {
-                            // Send SMS for Time In using guardian's phone
+                            // Send SMS for Time In
                             $studentFullName = $student['firstname'] . ' ' . $student['lastname'];
                             $formattedTime = date('h:i A', strtotime($current_datetime_str));
                             sendSMS($studentFullName, 'Time In', $formattedTime, $parent_phone);
@@ -283,7 +274,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['rfid_uid'])) {
                     } else {
                         $stmt_update = $pdo->prepare("UPDATE attendance SET time_out = :time_out WHERE attendance_id = :attendance_id");
                         if ($stmt_update->execute(['time_out' => $current_datetime_str, 'attendance_id' => $todays_record['attendance_id']])) {
-                            // Send SMS for Time Out using guardian's phone
+                            // Send SMS for Time Out
                             $studentFullName = $student['firstname'] . ' ' . $student['lastname'];
                             $formattedTime = date('h:i A', strtotime($current_datetime_str));
                             sendSMS($studentFullName, 'Time Out', $formattedTime, $parent_phone);
@@ -303,22 +294,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['rfid_uid'])) {
         }
     }
 
-    // This is a form submission, so it must return JSON
+    // AJAX Response
     if (isset($_POST['ajax'])) {
+        // Default profile photo
+        $default_image_path = 'img/profile.svg';
+
+        // Determine final profile image
+        $profile_image_url = $default_image_path;
+        if (!empty($student_info['profile_image']) && file_exists('uploads/' . $student_info['profile_image'])) {
+            $profile_image_url = 'uploads/' . $student_info['profile_image'];
+        }
+
         $response = [
             'message' => $message,
             'attendance_recorded' => $attendance_recorded,
             'student_info' => $student_info,
+            'profile_image_url' => $profile_image_url,
             'last_action_type' => $last_action_type,
             'last_action_time' => $last_action_time ? date("g:i:s A", strtotime($last_action_time)) : '',
             'last_status' => $last_status,
         ];
-        header('Content-Type: application/json'); // Ensure JSON header for AJAX responses
+
+        header('Content-Type: application/json');
         echo json_encode($response);
         exit;
     }
 }
 ?>
+
+
 <!DOCTYPE html>
 <html lang="en">
 
@@ -568,16 +572,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['rfid_uid'])) {
             justify-content: center;
             z-index: 9999;
         }
-
+        
+        /* --- MODAL STYLE CHANGES START HERE --- */
         .scan-modal-content {
             background: #fff;
-            padding: 40px 50px;
+            padding: 25px;
             border-radius: 20px;
-            min-width: 380px;
+            width: 450px; /* Adjusted width for vertical layout */
             max-width: 90%;
-            text-align: left;
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
             animation: appear 0.3s ease-out;
+            display: flex;
+            flex-direction: column; /* Stack photo and details vertically */
+            align-items: center; 
+            gap: 20px; /* Space between photo and details block */
         }
 
         @keyframes appear {
@@ -585,41 +593,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['rfid_uid'])) {
                 opacity: 0;
                 transform: scale(0.9) translateY(-20px);
             }
-
             to {
                 opacity: 1;
                 transform: scale(1) translateY(0);
             }
         }
-
-        .scan-modal-content h3 {
-            margin-top: 0;
-            color: var(--primary-blue);
-            font-size: 2em;
-            margin-bottom: 25px;
-            border-bottom: 2px solid var(--light-blue);
-            padding-bottom: 15px;
+        
+        .modal-profile-pic {
+            width: 150px;
+            height: 150px;
+            border-radius: 12px; /* Changed from 50% to create a box with rounded corners */
+            object-fit: cover;
+            border: 4px solid var(--light-blue);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+        
+        .modal-details {
+            width: 100%; /* Make details container take full width */
+            text-align: left;
         }
 
-        .scan-modal-content p {
-            font-size: 1.2em;
-            margin: 12px 0;
+        .modal-details h3 {
+            margin-top: 0;
+            color: var(--primary-blue);
+            font-size: 1.5em; /* Adjusted font size */
+            margin-bottom: 15px;
+            border-bottom: 2px solid var(--light-blue);
+            padding-bottom: 10px;
+            text-align: center; /* Center the "Student Details" heading */
+        }
+
+        .modal-details p {
+            font-size: 1.1em;
+            margin: 10px 0;
             color: var(--text-dark);
             display: flex;
             justify-content: space-between;
         }
 
-        .scan-modal-content p strong {
+        .modal-details p strong {
             color: var(--text-dark);
             font-weight: 600;
             flex-shrink: 0;
             margin-right: 15px;
         }
 
-        .scan-modal-content p span {
+        .modal-details p span {
             text-align: right;
             flex-grow: 1;
         }
+        /* --- MODAL STYLE CHANGES END HERE --- */
     </style>
 </head>
 
@@ -637,24 +660,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['rfid_uid'])) {
 
         <div class="system-status" id="systemStatus">
             <span class="status-dot <?php echo $system_active ? 'active' : 'inactive'; ?>"></span>
-            System Status: <span
-                class="<?php echo $system_active ? 'status-present' : 'status-absent'; ?>"><?php echo $system_active ? ' Active' : ' Inactive'; ?></span>
+            System Status: 
+            <span class="<?php echo $system_active ? 'status-present' : 'status-absent'; ?>">
+                <?php echo $system_active ? ' Active' : ' Inactive'; ?>
+            </span>
         </div>
 
         <div class="active-hours">
-            (Time In: <?php echo $morning_start_display . ' - ' . $morning_end_display; ?> | Time Out:
-            <?php echo $afternoon_start_display . ' - ' . $afternoon_end_display; ?>)
+            (Time In: <?php echo $morning_start_display . ' - ' . $morning_end_display; ?> |
+            Time Out: <?php echo $afternoon_start_display . ' - ' . $afternoon_end_display; ?>)
+
             <?php if (!$is_day_allowed): ?>
-                <br><span style="color:var(--error-red); font-weight:bold;">(Attendance is disabled on
-                    <?php echo $current_day_name; ?>)</span>
+                <br>
+                <span style="color:var(--error-red); font-weight:bold;">
+                    (Attendance is disabled on <?php echo $current_day_name; ?>)
+                </span>
             <?php endif; ?>
         </div>
 
         <div id="messageArea"><?php echo $message; ?></div>
 
         <form id="rfidForm" class="form-group inline-form">
-            <input type="text" id="rfid_uid" name="rfid_uid" placeholder="Scan RFID Card..." required autofocus
-                autocomplete="off">
+            <input type="text" id="rfid_uid" name="rfid_uid" placeholder="Scan RFID Card..." 
+                   required autofocus autocomplete="off">
             <input type="hidden" name="ajax" value="1">
             <button type="submit">Submit</button>
         </form>
@@ -665,7 +693,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['rfid_uid'])) {
     </div>
 
     <script>
-        // Store initial time settings from PHP to a JavaScript object
+        // Initial PHP time settings transferred to JavaScript
         const timeSettings = {
             morningStart: '<?php echo $morning_start; ?>',
             morningEnd: '<?php echo $morning_end; ?>',
@@ -679,10 +707,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['rfid_uid'])) {
             currentDayName: '<?php echo $current_day_name; ?>'
         };
 
-        // Get current time as HH:mm:ss for easy comparison
-        function getCurrentTimeStr() { return new Date().toTimeString().split(' ')[0]; }
+        function getCurrentTimeStr() {
+            return new Date().toTimeString().split(' ')[0];
+        }
 
-        // Check if the system is active based on the client-side timeSettings object
         function isSystemActive() {
             if (!timeSettings.isDayAllowed) return false;
             const currentTime = getCurrentTimeStr();
@@ -691,40 +719,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['rfid_uid'])) {
             return isMorning || isAfternoon;
         }
 
-        // Main function to update all dynamic UI elements, runs every second
         function updateDynamicElements() {
-            // 1. Update Live Clock
-            document.getElementById('currentTime').textContent = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+            // Live Clock
+            document.getElementById('currentTime').textContent =
+                new Date().toLocaleTimeString('en-US', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: true
+                });
 
-            // 2. Update System Status (Active/Inactive)
+            // System Status
             const active = isSystemActive();
             const statusDot = document.querySelector('#systemStatus .status-dot');
             const statusText = document.querySelector('#systemStatus span:last-of-type');
-            if (statusDot.classList.contains(active ? 'inactive' : 'active')) {
-                statusDot.className = `status-dot ${active ? 'active' : 'inactive'}`;
-                statusText.className = active ? 'status-present' : 'status-absent';
-                statusText.textContent = active ? ' Active' : ' Inactive';
-            }
 
-            // 3. Update the displayed time ranges and day-of-week warning
+            statusDot.className = `status-dot ${active ? 'active' : 'inactive'}`;
+            statusText.className = active ? 'status-present' : 'status-absent';
+            statusText.textContent = active ? ' Active' : ' Inactive';
+
+            // Active hours text
             const activeHoursDiv = document.querySelector('.active-hours');
             let hoursHTML = `(Time In: ${timeSettings.morningStartDisplay} - ${timeSettings.morningEndDisplay} | Time Out: ${timeSettings.afternoonStartDisplay} - ${timeSettings.afternoonEndDisplay})`;
+
             if (!timeSettings.isDayAllowed) {
                 hoursHTML += `<br><span style="color:var(--error-red); font-weight:bold;">(Attendance is disabled on ${timeSettings.currentDayName})</span>`;
             }
-            if (activeHoursDiv.innerHTML !== hoursHTML) {
-                activeHoursDiv.innerHTML = hoursHTML;
-            }
+
+            activeHoursDiv.innerHTML = hoursHTML;
         }
 
-        // Function to poll server for latest settings, runs periodically
         async function pollForSettings() {
             try {
-                const response = await fetch('?action=get_status'); // Use GET request to trigger our AJAX endpoint
+                const response = await fetch('?action=get_status');
                 if (!response.ok) return;
-                const data = await response.json();
 
-                // Update the global JS settings object with fresh data
+                const data = await response.json();
                 Object.assign(timeSettings, {
                     ...data.settings,
                     isDayAllowed: data.is_day_allowed,
@@ -734,21 +764,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['rfid_uid'])) {
                     afternoonStartDisplay: data.display.afternoon_start_display,
                     afternoonEndDisplay: data.display.afternoon_end_display
                 });
-            } catch (e) { console.error("Polling error:", e); }
+            } catch (e) {
+                console.error("Polling error:", e);
+            }
         }
-
-        // --- Event Listeners and Timers ---
 
         document.getElementById('rfidForm').addEventListener('submit', function (e) {
             e.preventDefault();
             const rfidInput = document.getElementById('rfid_uid');
 
-            // Client-side check provides instant feedback if system is inactive
             if (!isSystemActive()) {
-                let msg = !timeSettings.isDayAllowed
+                const msg = !timeSettings.isDayAllowed
                     ? `Attendance is not allowed on ${timeSettings.currentDayName}.`
                     : `System is inactive. Please scan during active hours.`;
-                document.getElementById('messageArea').innerHTML = `<div class="alert error">${msg}</div>`;
+
+                document.getElementById('messageArea').innerHTML =
+                    `<div class="alert error">${msg}</div>`;
+
                 rfidInput.value = '';
                 rfidInput.focus();
                 return;
@@ -758,40 +790,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['rfid_uid'])) {
                 .then(res => res.json())
                 .then(data => {
                     document.getElementById('messageArea').innerHTML = data.message;
+
                     if (data.attendance_recorded) {
-                        let modalContent = `<h3>Student Details</h3>` +
-                            `<p><strong>Name:</strong> <span>${data.student_info.firstname} ${data.student_info.lastname}</span></p>` +
-                            `<p><strong>LRN:</strong> <span>${data.student_info.lrn}</span></p>` +
-                            `<p><strong>Grade & Section:</strong> <span>${data.student_info.grade_level} - ${data.student_info.section_name || 'N/A'}</span></p>` +
-                            `<p><strong>Action:</strong> <span>${data.last_action_type}</span></p>` +
-                            `<p><strong>Time:</strong> <span>${data.last_action_time}</span></p>` +
-                            (data.last_action_type === 'Time In' ? `<p><strong>Status:</strong> <span class="status-${data.last_status.toLowerCase()}">${data.last_status.charAt(0).toUpperCase() + data.last_status.slice(1)}</span></p>` : '');
+                        const modalContent = `
+                            <img src="${data.profile_image_url}" alt="Profile Picture" class="modal-profile-pic">
+                            <div class="modal-details">
+                                <h3>Student Details</h3>
+                                <p><strong>Name:</strong> <span>${data.student_info.firstname} ${data.student_info.lastname}</span></p>
+                                <p><strong>LRN:</strong> <span>${data.student_info.lrn}</span></p>
+                                <p><strong>Grade & Section:</strong> 
+                                    <span>${data.student_info.grade_level} - ${data.student_info.section_name || 'N/A'}</span>
+                                </p>
+                                <p><strong>Action:</strong> <span>${data.last_action_type}</span></p>
+                                <p><strong>Time:</strong> <span>${data.last_action_time}</span></p>
+                                ${data.last_action_type === 'Time In'
+                                    ? `<p><strong>Status:</strong> 
+                                            <span class="status-${data.last_status.toLowerCase()}">
+                                                ${data.last_status.charAt(0).toUpperCase() + data.last_status.slice(1)}
+                                            </span>
+                                       </p>`
+                                    : ''}
+                            </div>`;
 
                         document.getElementById('scanModalContent').innerHTML = modalContent;
                         document.getElementById('scanModal').style.display = 'flex';
-                        setTimeout(() => { document.getElementById('scanModal').style.display = 'none'; }, 2500);
+
+                        setTimeout(() => {
+                            document.getElementById('scanModal').style.display = 'none';
+                        }, 3500);
                     }
+
                     rfidInput.value = '';
                     rfidInput.focus();
                 })
                 .catch(error => {
                     console.error('Error:', error);
-                    document.getElementById('messageArea').innerHTML = '<div class="alert error">A server error occurred. Please try again.</div>';
-                    // Do not clear input on catch to allow retry without re-scanning, but refocus
-                    rfidInput.focus();
+                    document.getElementById('messageArea').innerHTML =
+                        '<div class="alert error">A server error occurred. Please try again.</div>';
                 });
         });
 
-        // On page load, set up timers and initial state
-        window.addEventListener('load', function () {
+        window.addEventListener('load', () => {
             document.getElementById('rfid_uid').focus();
-            updateDynamicElements(); // Run once for initial display
-            pollForSettings();       // Fetch latest settings on load
+            updateDynamicElements();
+            pollForSettings();
 
-            setInterval(updateDynamicElements, 1000);   // Update UI every second
-            setInterval(pollForSettings, 5000); // Poll for new settings every 5 seconds
+            setInterval(updateDynamicElements, 1000);
+            setInterval(pollForSettings, 3000);
         });
     </script>
 </body>
-
 </html>
