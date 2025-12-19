@@ -7,9 +7,9 @@ if (!isset($_SESSION['email'])) {
     exit();
 }
 
-include 'conn.php'; // Your database connection file
+include 'conn.php';
 
-// Create logs directory if needed for enrollment operations
+// Create logs directory if needed
 if (!is_dir('logs')) {
     mkdir('logs', 0755, true);
 }
@@ -34,10 +34,6 @@ function validate_csrf_token() {
     }
 }
 
-/**
- * Function to get the current school year based on month.
- * Assumes school year starts in August.
- */
 function getCurrentSchoolYear() {
     $currentMonth = (int)date('m');
     $currentYear = (int)date('Y');
@@ -48,9 +44,6 @@ function getCurrentSchoolYear() {
     }
 }
 
-/**
- * Static available grade levels
- */
 $available_grade_levels = [
     'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10', 'Grade 11', 'Grade 12'
 ];
@@ -78,14 +71,14 @@ if ($students_result_for_dropdown) {
 }
 
 /**
- * Fetch all sections (for filtering and populating dropdowns)
+ * Fetch all sections (FIXED: using employee_id instead of adviser_id)
  */
 $sections_query = "
     SELECT
         s.section_id,
         s.section_name,
         s.grade_level,
-        s.adviser_id,
+        s.employee_id,
         CONCAT_WS(' ',
             adv.firstname,
             CASE WHEN adv.middlename IS NOT NULL AND adv.middlename != '' THEN CONCAT(LEFT(adv.middlename, 1),'.') ELSE NULL END,
@@ -93,7 +86,7 @@ $sections_query = "
             CASE WHEN adv.suffix IS NOT NULL AND adv.suffix != '' THEN adv.suffix ELSE NULL END
         ) AS adviser_fullname
     FROM sections s
-    LEFT JOIN advisers adv ON s.adviser_id = adv.adviser_id
+    LEFT JOIN advisers adv ON s.employee_id = adv.employee_id
     ORDER BY s.grade_level ASC, s.section_name ASC
 ";
 $sections_result_all = $conn->query($sections_query);
@@ -108,19 +101,17 @@ if ($sections_result_all) {
 $all_sections_json = json_encode($all_sections_for_js);
 
 /**
- * Handle Add Enrollment
+ * Handle Add Enrollment (FIXED: Now uses section_name instead of section_id)
  */
 if (isset($_POST['add_enrollment'])) {
     validate_csrf_token();
-    // Sanitize inputs
     $lrn         = htmlspecialchars(trim($_POST['lrn']), ENT_QUOTES, 'UTF-8');
     $grade_level = htmlspecialchars(trim($_POST['grade_level']), ENT_QUOTES, 'UTF-8');
-    // Fix: Get section_id from the hidden input, not from section_name
-    $section_id  = filter_var($_POST['section_id'], FILTER_VALIDATE_INT);
+    $section_name = htmlspecialchars(trim($_POST['section_name']), ENT_QUOTES, 'UTF-8');
     $school_year = htmlspecialchars(trim($_POST['school_year']), ENT_QUOTES, 'UTF-8');
 
-    if (empty($lrn) || empty($grade_level) || $section_id === false || $section_id === null || empty($school_year)) {
-        echo "<script>alert('All required fields must be filled (LRN, Grade Level, Section, School Year).'); window.location.href='enrollment.php';</script>";
+    if (empty($lrn) || empty($grade_level) || empty($section_name) || empty($school_year)) {
+        echo "<script>alert('All required fields must be filled.'); window.location.href='enrollment.php';</script>";
         exit();
     }
 
@@ -136,17 +127,7 @@ if (isset($_POST['add_enrollment'])) {
         }
         $stmt->close();
 
-        // Check if section exists
-        $stmt = $conn->prepare("SELECT 1 FROM sections WHERE section_id = ? AND grade_level = ?");
-        $stmt->bind_param("is", $section_id, $grade_level);
-        $stmt->execute();
-        $stmt->store_result();
-        if ($stmt->num_rows === 0) {
-            throw new Exception("Selected section not found for the chosen grade level.");
-        }
-        $stmt->close();
-
-        // Prevent duplicate enrollment for same student and school year
+        // Prevent duplicate enrollment
         $stmt = $conn->prepare("SELECT enrollment_id FROM enrollments WHERE lrn = ? AND school_year = ?");
         $stmt->bind_param("ss", $lrn, $school_year);
         $stmt->execute();
@@ -156,20 +137,13 @@ if (isset($_POST['add_enrollment'])) {
         }
         $stmt->close();
         
-        // Insert enrollment
-        $stmt = $conn->prepare("INSERT INTO enrollments (lrn, grade_level, section_id, school_year) VALUES (?, ?, ?, ?)");
-        $stmt->bind_param("ssis", $lrn, $grade_level, $section_id, $school_year);
-        if (!$stmt->execute()) { // Added check for execution failure
+        // Insert enrollment with section_name
+        $stmt = $conn->prepare("INSERT INTO enrollments (lrn, grade_level, section_name, school_year) VALUES (?, ?, ?, ?)");
+        $stmt->bind_param("ssss", $lrn, $grade_level, $section_name, $school_year);
+        if (!$stmt->execute()) {
             throw new Exception("Failed to add enrollment: " . $stmt->error);
         }
         $stmt->close();
-
-        // Reset AUTO_INCREMENT to continue from last used ID
-        $max_id = $conn->query("SELECT MAX(enrollment_id) AS max_id FROM enrollments")->fetch_assoc()['max_id'];
-        if ($max_id === null) {
-            $max_id = 0;
-        }
-        $conn->query("ALTER TABLE enrollments AUTO_INCREMENT = " . ($max_id + 1));
 
         $conn->commit();
         echo "<script>alert('Enrollment added successfully!'); window.location.href='enrollment.php?status=added';</script>";
@@ -180,9 +154,6 @@ if (isset($_POST['add_enrollment'])) {
         exit();
     }
 }
-
-
-
 
 /**
  * Handle Delete Enrollment
@@ -204,11 +175,6 @@ if (isset($_POST['delete_enrollment'])) {
         }
         $stmt->close();
 
-        // Reset AUTO_INCREMENT
-        $max_id = $conn->query("SELECT MAX(enrollment_id) AS max_id FROM enrollments")->fetch_assoc()['max_id'];
-        if ($max_id === null) $max_id = 0;
-        $conn->query("ALTER TABLE enrollments AUTO_INCREMENT = " . ($max_id + 1));
-
         $conn->commit();
         echo "<script>alert('Enrollment deleted successfully!'); window.location.href='enrollment.php?status=deleted';</script>";
         exit();
@@ -220,20 +186,20 @@ if (isset($_POST['delete_enrollment'])) {
 }
 
 /**
- * Handle Edit Enrollment
+ * Handle Edit Enrollment (FIXED: Now uses section_name)
  */
 if (isset($_POST['edit_enrollment'])) {
     validate_csrf_token();
     $enrollment_id = filter_var($_POST['edit_enrollment_id'], FILTER_VALIDATE_INT);
     $lrn           = htmlspecialchars(trim($_POST['edit_lrn_input']), ENT_QUOTES, 'UTF-8');
     $grade_level   = htmlspecialchars(trim($_POST['edit_grade_level']), ENT_QUOTES, 'UTF-8');
-    $section_id    = filter_var($_POST['edit_section_id'], FILTER_VALIDATE_INT);
+    $section_name  = htmlspecialchars(trim($_POST['edit_section_name']), ENT_QUOTES, 'UTF-8');
     $school_year   = htmlspecialchars(trim($_POST['edit_school_year']), ENT_QUOTES, 'UTF-8');
 
     if (
         $enrollment_id === false || $enrollment_id === null ||
         empty($lrn) || empty($grade_level) ||
-        $section_id === false || $section_id === null || empty($school_year)
+        empty($section_name) || empty($school_year)
     ) {
         echo "<script>alert('Invalid ID or missing fields.'); window.location.href='enrollment.php';</script>";
         exit();
@@ -249,14 +215,6 @@ if (isset($_POST['edit_enrollment'])) {
         if ($stmt->num_rows === 0) throw new Exception("LRN not found.");
         $stmt->close();
 
-        // Check section exists
-        $stmt = $conn->prepare("SELECT 1 FROM sections WHERE section_id = ? AND grade_level = ?");
-        $stmt->bind_param("is", $section_id, $grade_level);
-        $stmt->execute();
-        $stmt->store_result();
-        if ($stmt->num_rows === 0) throw new Exception("Selected section not found for the chosen grade level.");
-        $stmt->close();
-
         // Prevent duplicate enrollment
         $stmt = $conn->prepare("SELECT enrollment_id FROM enrollments WHERE lrn = ? AND school_year = ? AND enrollment_id != ?");
         $stmt->bind_param("ssi", $lrn, $school_year, $enrollment_id);
@@ -265,9 +223,9 @@ if (isset($_POST['edit_enrollment'])) {
         if ($stmt->num_rows > 0) throw new Exception("Another enrollment for this student exists for this school year.");
         $stmt->close();
 
-        // Update enrollment record
-        $stmt = $conn->prepare("UPDATE enrollments SET lrn = ?, grade_level = ?, section_id = ?, school_year = ? WHERE enrollment_id = ?");
-        $stmt->bind_param("ssisi", $lrn, $grade_level, $section_id, $school_year, $enrollment_id);
+        // Update enrollment record with section_name
+        $stmt = $conn->prepare("UPDATE enrollments SET lrn = ?, grade_level = ?, section_name = ?, school_year = ? WHERE enrollment_id = ?");
+        $stmt->bind_param("ssssi", $lrn, $grade_level, $section_name, $school_year, $enrollment_id);
         if (!$stmt->execute()) throw new Exception("Failed to update enrollment: " . $stmt->error);
         $stmt->close();
 
@@ -282,8 +240,7 @@ if (isset($_POST['edit_enrollment'])) {
 }
 
 /**
- * Handle CSV Import for Enrollments
- * Expect CSV columns: lrn, grade_level, section_id, school_year
+ * Handle CSV Import (FIXED: Now uses section_name)
  */
 function safeTrimCSV($value) {
     if (is_null($value) || is_array($value) || is_bool($value) || is_object($value)) return '';
@@ -309,11 +266,11 @@ if (isset($_POST['import_enrollments_csv']) && isset($_FILES['enrollment_csvfile
     if (($handle = fopen($tmpPath, 'r')) !== false) {
         ini_set('auto_detect_line_endings', 1);
         $header = fgetcsv($handle, 2000, ",");
-        $expected_headers = ['lrn', 'grade_level', 'section_id', 'school_year'];
+        $expected_headers = ['lrn', 'grade_level', 'section_name', 'school_year'];
 
         if (!is_array($header) || count($header) < count($expected_headers)) {
             fclose($handle);
-            echo "<script>alert('❌ CSV must have these columns: lrn, grade_level, section_id, school_year');window.location.href='enrollment.php';</script>";
+            echo "<script>alert('❌ CSV must have these columns: lrn, grade_level, section_name, school_year');window.location.href='enrollment.php';</script>";
             exit();
         }
 
@@ -335,7 +292,7 @@ if (isset($_POST['import_enrollments_csv']) && isset($_FILES['enrollment_csvfile
             }
         }
 
-        $stmt = $conn->prepare("INSERT INTO enrollments (lrn, grade_level, section_id, school_year) VALUES (?, ?, ?, ?)");
+        $stmt = $conn->prepare("INSERT INTO enrollments (lrn, grade_level, section_name, school_year) VALUES (?, ?, ?, ?)");
         if (!$stmt) {
             fclose($handle);
             error_log(date('c') . " PREPARE ERR (CSV Import): " . $conn->error . "\n", 3, $enrollment_error_log);
@@ -353,16 +310,14 @@ if (isset($_POST['import_enrollments_csv']) && isset($_FILES['enrollment_csvfile
 
             $lrn_csv         = safeTrimCSV($data[$col_map['lrn']] ?? '');
             $grade_level_csv = safeTrimCSV($data[$col_map['grade_level']] ?? '');
-            $section_id_csv  = safeTrimCSV($data[$col_map['section_id']] ?? '');
+            $section_name_csv = safeTrimCSV($data[$col_map['section_name']] ?? '');
             $school_year_csv = safeTrimCSV($data[$col_map['school_year']] ?? '');
             $valid_row = true;
 
-            if (empty($lrn_csv) || empty($grade_level_csv) || empty($section_id_csv) || empty($school_year_csv)) {
+            if (empty($lrn_csv) || empty($grade_level_csv) || empty($section_name_csv) || empty($school_year_csv)) {
                 $errors[] = "Row {$row_num}: Missing required fields.";
                 $valid_row = false;
             }
-
-            $section_id_val = (int)$section_id_csv;
 
             // Check student exists
             if ($valid_row) {
@@ -378,24 +333,6 @@ if (isset($_POST['import_enrollments_csv']) && isset($_FILES['enrollment_csvfile
                     $stmt_check->close();
                 } else {
                     $errors[] = "Row {$row_num}: DB error during student check.";
-                    $valid_row = false;
-                }
-            }
-
-            // Check section exists
-            if ($valid_row) {
-                $stmt_check = $conn->prepare("SELECT COUNT(*) AS count FROM sections WHERE section_id = ?");
-                if ($stmt_check) {
-                    $stmt_check->bind_param("i", $section_id_val);
-                    $stmt_check->execute();
-                    $result = $stmt_check->get_result()->fetch_assoc();
-                    if ($result['count'] == 0) {
-                        $errors[] = "Row {$row_num}: Section ID '{$section_id_csv}' not found.";
-                        $valid_row = false;
-                    }
-                    $stmt_check->close();
-                } else {
-                    $errors[] = "Row {$row_num}: DB error during section check.";
                     $valid_row = false;
                 }
             }
@@ -419,7 +356,7 @@ if (isset($_POST['import_enrollments_csv']) && isset($_FILES['enrollment_csvfile
             }
 
             if ($valid_row) {
-                $stmt->bind_param("ssis", $lrn_csv, $grade_level_csv, $section_id_val, $school_year_csv);
+                $stmt->bind_param("ssss", $lrn_csv, $grade_level_csv, $section_name_csv, $school_year_csv);
                 if (!$stmt->execute()) {
                     $errors[] = "Row {$row_num}: DB error during insert: " . $stmt->error;
                 } else {
@@ -431,11 +368,6 @@ if (isset($_POST['import_enrollments_csv']) && isset($_FILES['enrollment_csvfile
         fclose($handle);
         $stmt->close();
 
-        // Reset AUTO_INCREMENT after CSV import
-        $max_id = $conn->query("SELECT MAX(enrollment_id) AS max_id FROM enrollments")->fetch_assoc()['max_id'];
-        if ($max_id === null) $max_id = 0;
-        $conn->query("ALTER TABLE enrollments AUTO_INCREMENT = " . ($max_id + 1));
-
         $message = "✓ CSV Import Complete\nSuccessfully imported: {$rowCount} enrollment records\n";
         if (!empty($errors)) {
             $message .= "\n❌ Errors (" . count($errors) . " rows failed):\n" . implode("\n", array_slice($errors, 0, 5));
@@ -446,22 +378,20 @@ if (isset($_POST['import_enrollments_csv']) && isset($_FILES['enrollment_csvfile
         echo "<script>alert(" . json_encode($message) . ");window.location.href='enrollment.php';</script>";
         exit();
     } else {
-        echo "<script>alert('❌ Failed to open CSV file. Please check file permissions or file integrity.');window.location.href='enrollment.php';</script>";
+        echo "<script>alert('❌ Failed to open CSV file.');window.location.href='enrollment.php';</script>";
         exit();
     }
 }
 
-
 /**
- * Fetch enrollment records for display
+ * Fetch enrollment records for display (FIXED: Joins using employee_id and section_name)
  */
 $enrollments_query = "
     SELECT
-        e.enrollment_id, e.lrn, e.grade_level, e.school_year, e.section_id,
+        e.enrollment_id, e.lrn, e.grade_level, e.school_year, e.section_name,
         COALESCE(st.firstname, 'N/A') AS student_firstname,
         COALESCE(st.middlename, '') AS student_middlename,
         COALESCE(st.lastname, 'N/A') AS student_lastname,
-        COALESCE(sec.section_name, 'N/A') AS section_name,
         COALESCE(
             CONCAT_WS(' ',
                 adv.firstname,
@@ -473,9 +403,9 @@ $enrollments_query = "
         ) AS adviser_name
     FROM enrollments e
     LEFT JOIN students st ON e.lrn = st.lrn
-    LEFT JOIN sections sec ON e.section_id = sec.section_id
-    LEFT JOIN advisers adv ON sec.adviser_id = adv.adviser_id
-    ORDER BY e.school_year DESC, e.grade_level ASC, sec.section_name ASC, st.lastname, st.firstname
+    LEFT JOIN sections sec ON e.section_name = sec.section_name AND e.grade_level = sec.grade_level
+    LEFT JOIN advisers adv ON sec.employee_id = adv.employee_id
+    ORDER BY e.school_year DESC, e.grade_level ASC, e.section_name ASC, st.lastname, st.firstname
 ";
 $enrollments_result = $conn->query($enrollments_query);
 if (!$enrollments_result) {
@@ -487,7 +417,6 @@ if (!$enrollments_result) {
 }
 ?>
 
-
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -495,9 +424,7 @@ if (!$enrollments_result) {
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>Enrollment Dashboard</title>
-    <!-- Custom fonts and styles -->
     <link href="vendor/fontawesome-free/css/all.min.css" rel="stylesheet" type="text/css">
-    <!-- Material Symbols -->
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" />
     <link href="https://fonts.googleapis.com/css?family=Nunito:200,300,400,600,700,800,900" rel="stylesheet">
     <link href="css/sb-admin-2.min.css" rel="stylesheet">
@@ -628,18 +555,15 @@ if (!$enrollments_result) {
                     <span class="material-symbols-outlined">search</span>
                   </span>
                 </div>
-                <!-- CSV Import Button -->
                 <button type="button" class="btn btn-success me-2" data-bs-toggle="modal" data-bs-target="#importModal" style="box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
                   <span class="material-symbols-outlined">upload_file</span> Import CSV
                 </button>
-                <!-- Add Enrollment Button -->
                 <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addEnrollmentModal" style="box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
                   <span class="material-symbols-outlined">person_add</span> Add Enrollment
                 </button>
               </div>
             </div>
 
-           <!-- Status Alerts -->
 <?php if (isset($_GET['status'])): ?>
   <div class="alert alert-success alert-dismissible fade show" role="alert">
     <?php
@@ -653,7 +577,6 @@ if (!$enrollments_result) {
   </div>
 <?php endif; ?>
 
-<!-- Enrollment Table -->
 <div class="table-card">
   <div class="table-responsive-custom">
     <table class="custom-table">
@@ -685,7 +608,6 @@ if ($enrollments_result->num_rows > 0):
             $student_fullname .= ' ' . htmlspecialchars(substr($mn, 0, 1)) . '.';
         }
 ?>
-
 <tr class="hover:bg-gray-50">
   <td class="border px-3 py-2"><?= $counter++ ?></td>
   <td class="border px-3 py-2"><?= htmlspecialchars($row['lrn']) ?></td>
@@ -699,7 +621,7 @@ if ($enrollments_result->num_rows > 0):
       "enrollment_id" => $row["enrollment_id"],
       "lrn" => $row["lrn"],
       "grade_level" => $row["grade_level"],
-      "section_id" => $row["section_id"],
+      "section_name" => $row["section_name"],
       "school_year" => $row["school_year"]
     ]) ?>)' class="action-icon-btn edit-icon" title="Edit Enrollment">
       <span class="material-symbols-outlined">edit</span>
@@ -722,17 +644,16 @@ if ($enrollments_result->num_rows > 0):
     </table>
   </div>
 </div>
-</div><!-- container-fluid -->
-</div><!-- content -->
+</div>
+</div>
 
 <?php include 'footer.php'; ?>
-</div><!-- content-wrapper -->
-</div><!-- wrapper -->
+</div>
+</div>
 
 <a class="scroll-to-top rounded" href="#page-top">
   <i class="fas fa-angle-up"></i>
 </a>
-
 
 <!-- Add Enrollment Modal -->
 <div class="modal fade" id="addEnrollmentModal" tabindex="-1" aria-hidden="true">
@@ -761,7 +682,6 @@ if ($enrollments_result->num_rows > 0):
             <input type="text" list="add_grade_level_list" id="add_grade_level_input" name="grade_level" class="form-control" placeholder="Type or select grade level" required>
             <datalist id="add_grade_level_list">
                 <?php 
-                  // Get unique grade levels from database
                   $stmt = $conn->prepare("SELECT DISTINCT grade_level FROM sections ORDER BY grade_level");
                   if ($stmt) {
                     $stmt->execute();
@@ -782,7 +702,6 @@ if ($enrollments_result->num_rows > 0):
             <label for="add_section_input" class="form-label">Section *</label>
             <input type="text" list="add_section_list" id="add_section_input" name="section_name" class="form-control" placeholder="Type or select section" required>
             <datalist id="add_section_list"></datalist>
-            <input type="hidden" id="add_section_id" name="section_id">
             <small class="text-danger" id="add_section_error" style="display: none;"></small>
           </div>
 
@@ -799,10 +718,6 @@ if ($enrollments_result->num_rows > 0):
     </div>
   </div>
 </div>
-
-
-
-
 
 <!-- Edit Enrollment Modal -->
 <div class="modal fade" id="editEnrollmentModal" tabindex="-1" aria-hidden="true">
@@ -845,9 +760,8 @@ if ($enrollments_result->num_rows > 0):
 
           <div class="mb-3">
             <label for="edit_section_input" class="form-label">Section *</label>
-            <input type="text" list="edit_section_list" id="edit_section_input" name="section_name" class="form-control" placeholder="Type or select section" required>
+            <input type="text" list="edit_section_list" id="edit_section_input" name="edit_section_name" class="form-control" placeholder="Type or select section" required>
             <datalist id="edit_section_list"></datalist>
-            <input type="hidden" id="edit_section_id" name="edit_section_id">
             <small class="text-danger" id="edit_section_error" style="display: none;"></small>
           </div>
 
@@ -879,7 +793,7 @@ if ($enrollments_result->num_rows > 0):
           <div class="mb-3">
             <label for="enrollment_csvfile" class="form-label">Select CSV File *</label>
             <input type="file" name="enrollment_csvfile" id="enrollment_csvfile" class="form-control" accept=".csv" required>
-            <small class="text-muted">Max 5MB | Columns: lrn, grade_level, section_id, school_year</small>
+            <small class="text-muted">Max 5MB | Columns: lrn, grade_level, section_name, school_year</small>
           </div>
         </div>
         <div class="modal-footer">
@@ -891,21 +805,14 @@ if ($enrollments_result->num_rows > 0):
   </div>
 </div>
 
-
 <script>
   const allSectionsData = <?= $all_sections_json ?>;
 
-  // Get unique grade levels
-  const getAvailableGradeLevels = () => [...new Set(allSectionsData.map(s => s.grade_level))].sort();
-
-  // Populate section datalist based on grade level
-  function populateSectionList(gradeLevel, datalistId, sectionInputId, hiddenSectionIdId) {
+  function populateSectionList(gradeLevel, datalistId, sectionInputId) {
     const datalist = document.getElementById(datalistId);
     const sectionInput = document.getElementById(sectionInputId);
-    const hiddenId = document.getElementById(hiddenSectionIdId);
 
     datalist.innerHTML = '';
-    hiddenId.value = '';
     sectionInput.value = '';
 
     if (!gradeLevel) return;
@@ -927,84 +834,45 @@ if ($enrollments_result->num_rows > 0):
     filteredSections.forEach(section => {
       const option = document.createElement('option');
       option.value = section.section_name;
-      option.dataset.sectionId = section.section_id;
       datalist.appendChild(option);
     });
   }
 
-  // Handle section input change
-  function handleSectionInput(sectionInputId, datalistId, hiddenSectionIdId) {
-    const sectionInput = document.getElementById(sectionInputId);
-    const datalist = document.getElementById(datalistId);
-    const hiddenId = document.getElementById(hiddenSectionIdId);
-    const errorMsgId = sectionInputId.includes('add') ? 'add_section_error' : 'edit_section_error';
-
-    sectionInput.addEventListener('input', function() {
-      const selectedOption = Array.from(datalist.options).find(
-        o => o.value.toLowerCase() === this.value.toLowerCase()
-      );
-
-      if (selectedOption) {
-        hiddenId.value = selectedOption.dataset.sectionId;
-        document.getElementById(errorMsgId).style.display = 'none';
-      } else {
-        hiddenId.value = '';
-        if (this.value) {
-          document.getElementById(errorMsgId).textContent = 'Please select a valid section from the list';
-          document.getElementById(errorMsgId).style.display = 'block';
-        } else {
-          document.getElementById(errorMsgId).style.display = 'none';
-        }
-      }
-    });
-  }
-
-  // Populate Edit Enrollment Modal
   function openEditEnrollmentModal(data) {
     document.getElementById('edit_enrollment_id').value = data.enrollment_id;
     document.getElementById('edit_lrn_input').value = data.lrn;
     document.getElementById('edit_school_year').value = data.school_year;
     document.getElementById('edit_grade_level_input').value = data.grade_level;
 
-    populateSectionList(data.grade_level, 'edit_section_list', 'edit_section_input', 'edit_section_id');
-
-    const section = allSectionsData.find(s => s.section_id == data.section_id);
-    if (section) document.getElementById('edit_section_input').value = section.section_name;
+    populateSectionList(data.grade_level, 'edit_section_list', 'edit_section_input');
+    document.getElementById('edit_section_input').value = data.section_name;
 
     const editModal = new bootstrap.Modal(document.getElementById('editEnrollmentModal'));
     editModal.show();
   }
 
   document.addEventListener('DOMContentLoaded', function() {
-    // Add Enrollment listeners
     const addGradeLevelInput = document.getElementById('add_grade_level_input');
     if (addGradeLevelInput) {
       addGradeLevelInput.addEventListener('input', () =>
-        populateSectionList(addGradeLevelInput.value, 'add_section_list', 'add_section_input', 'add_section_id')
+        populateSectionList(addGradeLevelInput.value, 'add_section_list', 'add_section_input')
       );
     }
 
-    // Edit Enrollment listeners
     const editGradeLevelInput = document.getElementById('edit_grade_level_input');
     if (editGradeLevelInput) {
       editGradeLevelInput.addEventListener('input', () =>
-        populateSectionList(editGradeLevelInput.value, 'edit_section_list', 'edit_section_input', 'edit_section_id')
+        populateSectionList(editGradeLevelInput.value, 'edit_section_list', 'edit_section_input')
       );
     }
 
-    handleSectionInput('add_section_input', 'add_section_list', 'add_section_id');
-    handleSectionInput('edit_section_input', 'edit_section_list', 'edit_section_id');
-
-    // Reset Add Enrollment form on modal close
     document.getElementById('addEnrollmentModal').addEventListener('hidden.bs.modal', () => {
       document.getElementById('enrollmentForm').reset();
-      document.getElementById('add_section_id').value = '';
       document.getElementById('add_section_list').innerHTML = '';
       document.getElementById('add_grade_level_error').style.display = 'none';
       document.getElementById('add_section_error').style.display = 'none';
     });
 
-    // Enrollment table search
     const searchInput = $('#searchEnrollment');
     const clearBtn = $('#clearSearch');
     const tableRows = $('.custom-table tbody tr');
@@ -1033,7 +901,6 @@ if ($enrollments_result->num_rows > 0):
       searchInput.focus();
     });
 
-    // Auto-dismiss alerts
     setTimeout(() => {
       $(".alert").alert('close');
       if (window.history.replaceState) {
@@ -1044,7 +911,6 @@ if ($enrollments_result->num_rows > 0):
     }, 5000);
   });
 </script>
-
 
 </body>
 </html>

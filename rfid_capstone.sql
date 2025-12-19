@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Dec 03, 2025 at 07:10 PM
+-- Generation Time: Dec 19, 2025 at 08:33 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -28,8 +28,7 @@ SET time_zone = "+00:00";
 --
 
 CREATE TABLE `advisers` (
-  `adviser_id` int(11) NOT NULL,
-  `employee_id` int(20) DEFAULT NULL,
+  `employee_id` int(20) NOT NULL,
   `lastname` varchar(50) DEFAULT NULL,
   `firstname` varchar(50) DEFAULT NULL,
   `middlename` varchar(50) DEFAULT NULL,
@@ -43,19 +42,19 @@ CREATE TABLE `advisers` (
 -- Dumping data for table `advisers`
 --
 
-INSERT INTO `advisers` (`adviser_id`, `employee_id`, `lastname`, `firstname`, `middlename`, `suffix`, `gender`, `username`, `pass`) VALUES
-(1, 12345, 'Rowan', 'Jenny', 'Amandi', '', 'female', 'jennyrowan', 'jenny123'),
-(2, 12344, 'Perez', 'Louver', 'Delaney', '', 'male', 'louverperez', 'louver122'),
-(3, 12343, 'Dela Rosa', 'Lovely', 'Kova', '', 'male', 'lovelydela rosa', 'lovely121'),
-(4, 12342, 'Buag', 'Irene', 'Sterling', '', 'female', 'irenebuag', 'irene120'),
-(5, 12341, 'Aranilla', 'Pricess', 'Nguyen', '', 'female', 'pricessaranilla', 'princess119'),
-(6, 12346, 'Buendia', 'Jenifer', 'Callaghan', '', 'female', 'jeniferbuendia', 'jenifer118'),
-(7, 12347, 'Ayapana', 'Jane', 'Petrov', '', 'female', 'janeayapana', 'jane117'),
-(8, 12348, 'De Guzman', 'Peter', 'Mansour', '', 'female', 'peterde guzman', 'peter116'),
-(9, 12349, 'Parker', 'Juan', 'Vasquez', '', 'male', 'juanparker', 'juan115'),
-(10, 12310, 'Dela Cruz', 'John', 'Hendrix', '', 'male', 'johndela cruz', 'john114'),
-(11, 12311, 'Wreck', 'Carl', 'Tanaka', '', 'male', 'carlwreck', 'carl113'),
-(12, 12312, 'Agustin', 'Piolo', 'Morales', '', 'male', 'pioloagustin', 'piolo112');
+INSERT INTO `advisers` (`employee_id`, `lastname`, `firstname`, `middlename`, `suffix`, `gender`, `username`, `pass`) VALUES
+(12310, 'Dela Cruz', 'John', 'Hendrix', '', 'male', 'johndela cruz', 'john114'),
+(12311, 'Wreck', 'Carl', 'Tanaka', '', 'male', 'carlwreck', 'carl113'),
+(12312, 'Agustin', 'Piolo', 'Morales', '', 'male', 'pioloagustin', 'piolo112'),
+(12341, 'Aranilla', 'Pricess', 'Nguyen', '', 'female', 'pricessaranilla', 'princess119'),
+(12342, 'Buag', 'Irene', 'Sterling', '', 'female', 'irenebuag', 'irene120'),
+(12343, 'Dela Rosa', 'Lovely', 'Kova', '', 'male', 'lovelydela rosa', 'lovely121'),
+(12344, 'Perez', 'Louver', 'Delaney', '', 'male', 'louverperez', 'louver122'),
+(12345, 'Rowan', 'Jenny', 'Amandi', '', 'female', 'jennyrowan', 'jenny123'),
+(12346, 'Buendia', 'Jenifer', 'Callaghan', '', 'female', 'jeniferbuendia', 'jenifer118'),
+(12347, 'Ayapana', 'Jane', 'Petrov', '', 'female', 'janeayapana', 'jane117'),
+(12348, 'De Guzman', 'Peter', 'Mansour', '', 'female', 'peterde guzman', 'peter116'),
+(12349, 'Parker', 'Juan', 'Vasquez', '', 'male', 'juanparker', 'juan115');
 
 -- --------------------------------------------------------
 
@@ -73,22 +72,6 @@ CREATE TABLE `attendance` (
   `status` varchar(50) DEFAULT 'present'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
---
--- Dumping data for table `attendance`
---
-
-INSERT INTO `attendance` (`attendance_id`, `lrn`, `enrollment_id`, `date`, `time_in`, `time_out`, `status`) VALUES
-(1, 108959090007, 6, '2025-12-04', '2025-12-04 01:28:02', '2025-12-04 01:40:49', 'present'),
-(2, 108959090006, 5, '2025-12-04', '2025-12-04 01:28:08', '2025-12-04 01:40:46', 'present'),
-(3, 108959090005, 4, '2025-12-04', '2025-12-04 01:28:15', '2025-12-04 01:40:42', 'present'),
-(4, 108959090001, 1, '2025-12-04', '2025-12-04 01:28:22', '2025-12-04 01:40:38', 'present'),
-(5, 108959090008, 7, '2025-12-04', '2025-12-04 01:28:28', '2025-12-04 01:40:34', 'present'),
-(6, 108959090010, 9, '2025-12-04', '2025-12-04 01:28:34', '2025-12-04 01:40:30', 'present'),
-(7, 108959090011, 10, '2025-12-04', '2025-12-04 01:28:46', '2025-12-04 01:40:27', 'present'),
-(8, 108959090004, 3, '2025-12-04', '2025-12-04 01:28:55', '2025-12-04 01:40:23', 'present'),
-(9, 108959090012, 11, '2025-12-04', '2025-12-04 01:29:05', '2025-12-04 01:40:05', 'present'),
-(10, 108959090009, 8, '2025-12-04', '2025-12-04 01:29:07', '2025-12-04 01:40:20', 'present');
-
 -- --------------------------------------------------------
 
 --
@@ -99,7 +82,7 @@ CREATE TABLE `enrollments` (
   `enrollment_id` int(11) NOT NULL,
   `lrn` bigint(50) DEFAULT NULL,
   `grade_level` varchar(10) DEFAULT NULL,
-  `section_id` int(11) DEFAULT NULL,
+  `section_name` varchar(50) DEFAULT NULL,
   `school_year` varchar(9) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
@@ -107,18 +90,20 @@ CREATE TABLE `enrollments` (
 -- Dumping data for table `enrollments`
 --
 
-INSERT INTO `enrollments` (`enrollment_id`, `lrn`, `grade_level`, `section_id`, `school_year`) VALUES
-(1, 108959090001, '7', 1, '2025-2026'),
-(2, 108959090002, '7', 2, '2025-2026'),
-(3, 108959090004, '8', 4, '2025-2026'),
-(4, 108959090005, '12-TVL', 5, '2025-2026'),
-(5, 108959090006, '12-GAS', 6, '2025-2026'),
-(6, 108959090007, '11-GAS', 7, '2025-2026'),
-(7, 108959090008, '11-TVL', 8, '2025-2026'),
-(8, 108959090009, '10', 9, '2025-2026'),
-(9, 108959090010, '10', 10, '2025-2026'),
-(10, 108959090011, '9', 11, '2025-2026'),
-(11, 108959090012, '9', 12, '2025-2026');
+INSERT INTO `enrollments` (`enrollment_id`, `lrn`, `grade_level`, `section_name`, `school_year`) VALUES
+(1, 108959090001, '7', 'Emerald', '2025-2026'),
+(2, 108959090002, '11-TVL', 'Ruby', '2025-2026'),
+(3, 108959090003, '7', 'Emerald', '2025-2026'),
+(4, 108959090004, '7', 'Emerald', '2025-2026'),
+(5, 108959090005, '7', 'Emerald', '2025-2026'),
+(6, 108959090006, '7', 'Emerald', '2025-2026'),
+(7, 108959090007, '7', 'Emerald', '2025-2026'),
+(8, 108959090008, '7', 'Emerald', '2025-2026'),
+(9, 108959090009, '7', 'Emerald', '2025-2026'),
+(10, 108959090010, '7', 'Emerald', '2025-2026'),
+(11, 108959090011, '7', 'Emerald', '2025-2026'),
+(12, 108959090012, '7', 'Emerald', '2025-2026'),
+(13, 108959090013, '7', 'Emerald', '2025-2026');
 
 -- --------------------------------------------------------
 
@@ -142,17 +127,19 @@ CREATE TABLE `guardians` (
 --
 
 INSERT INTO `guardians` (`guardian_id`, `lrn`, `lastname`, `firstname`, `middlename`, `suffix`, `contact_number`, `relationship_to_student`) VALUES
-(57, 108959090001, 'Odnimer', 'Merlin', 'Delin', '', 9123456789, 'Mother'),
-(59, 108959090012, 'Noscal', 'cholo', 'Marquez', '', 9123456787, 'Bother'),
-(60, 108959090004, 'De Leon', 'kenneth', 'Eroles', '', 9123456785, 'Brother'),
-(61, 108959090005, 'Dichosa', 'Venus', 'Eroles', '', 9123456784, 'Mother'),
-(62, 108959090006, 'Glorioso', 'Myra', 'Delin', '', 9123456783, 'Mother'),
-(63, 108959090007, 'Medina', 'Papsi', 'Cambarihan', '', 9123456782, 'Brother'),
-(64, 108959090008, 'Llanes', 'Bea', 'Veran', '', 9123456781, 'Sister'),
-(65, 108959090009, 'Ocan', 'Renoel', 'De Leon', '', 9123456779, 'Brother'),
-(66, 108959090010, 'Altez', 'Alyssa', 'Mapaye', '', 9123456778, 'Sister'),
-(67, 108959090011, 'Fabriquel', 'Deo', 'Enad', '', 9123456777, 'Brother'),
-(68, 108959090002, 'Agang', 'Haily', 'Delos', '', 9123456788, 'Sister');
+(1, 108959090001, 'Odnimer', 'Merlin', 'Delin', '', 9123456789, 'Mother'),
+(2, 108959090002, 'Agang', 'Haily', 'Delos', '', 9123456788, 'Sister'),
+(3, 108959090003, 'Noscal', 'cholo', 'Marquez', '', 9123456787, 'Bother'),
+(4, 108959090004, 'Binabay', 'Mark', 'Marasigan', '', 9123456786, 'Brother'),
+(5, 108959090005, 'De Leon', 'kenneth', 'Eroles', '', 9123456785, 'Brother'),
+(6, 108959090006, 'Dichosa', 'Venus', 'Eroles', '', 9123456784, 'Mother'),
+(7, 108959090007, 'Glorioso', 'Myra', 'Delin', '', 9123456783, 'Mother'),
+(8, 108959090008, 'Medina', 'Papsi', 'Cambarihan', '', 9123456782, 'Brother'),
+(9, 108959090009, 'Llanes', 'Bea', 'Veran', '', 9123456781, 'Sister'),
+(10, 108959090010, 'Ocan', 'Renoel', 'De Leon', '', 9123456779, 'Brother'),
+(11, 108959090011, 'Altez', 'Alyssa', 'Mapaye', '', 9123456778, 'Sister'),
+(12, 108959090012, 'Fabriquel', 'Deo', 'Enad', '', 9123456777, 'Brother'),
+(13, 108959090013, 'Eroles', 'Ding DongRivera', '', '', 9811670811, 'Father');
 
 -- --------------------------------------------------------
 
@@ -171,17 +158,19 @@ CREATE TABLE `rfid` (
 --
 
 INSERT INTO `rfid` (`rfid_id`, `rfid_number`, `lrn`) VALUES
-(1, 1189966981, 108959090001),
+(1, 1190858501, 108959090001),
 (2, 2147483647, 108959090002),
-(3, 1225942085, 108959090004),
-(4, 1189257061, 108959090005),
-(5, 1226471845, 108959090006),
-(6, 1224983381, 108959090007),
-(7, 1226163477, 108959090008),
-(8, 1225351493, 108959090009),
-(9, 1225902677, 108959090010),
-(10, 1450823369, 108959090011),
-(11, 1225600245, 108959090012);
+(3, 1226471845, 108959090003),
+(4, 1189257061, 108959090004),
+(5, 1225942085, 108959090005),
+(6, 1450823369, 108959090006),
+(7, 1224983381, 108959090007),
+(8, 1189966981, 108959090008),
+(9, 1225600245, 108959090009),
+(10, 1225902677, 108959090010),
+(11, 1226163477, 108959090011),
+(12, 1225351493, 108959090012),
+(13, 2147483647, 108959090013);
 
 -- --------------------------------------------------------
 
@@ -193,26 +182,26 @@ CREATE TABLE `sections` (
   `section_id` int(11) NOT NULL,
   `section_name` varchar(50) DEFAULT NULL,
   `grade_level` varchar(10) DEFAULT NULL,
-  `adviser_id` int(20) DEFAULT NULL
+  `employee_id` int(20) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- Dumping data for table `sections`
 --
 
-INSERT INTO `sections` (`section_id`, `section_name`, `grade_level`, `adviser_id`) VALUES
-(1, 'Emerald', '7', 1),
-(2, 'Courage', '7', 2),
-(3, 'Integrity', '8', 3),
-(4, 'Aquamarine', '8', 4),
-(5, 'Excellence', '12-TVL', 5),
-(6, 'Diamond', '12-GAS', 6),
-(7, 'Harmony', '11-GAS', 7),
-(8, 'Ruby', '11-TVL', 8),
-(9, 'Perseverance', '10', 9),
-(10, 'Wisdom', '10', 10),
-(11, 'Charity', '9', 11),
-(12, 'Amethyst', '9', 12);
+INSERT INTO `sections` (`section_id`, `section_name`, `grade_level`, `employee_id`) VALUES
+(1, 'Emerald', '7', 12345),
+(2, 'Courage', '7', 12344),
+(3, 'Integrity', '8', 12343),
+(4, 'Aquamarine', '8', 12342),
+(5, 'Excellence', '12-TVL', 12341),
+(6, 'Diamond', '12-GAS', 12346),
+(7, 'Harmony', '11-GAS', 12347),
+(8, 'Ruby', '11-TVL', 12348),
+(9, 'Perseverance', '10', 12349),
+(10, 'Wisdom', '10', 12310),
+(11, 'Charity', '9', 12311),
+(12, 'Amethyst', '9', 12312);
 
 -- --------------------------------------------------------
 
@@ -236,17 +225,19 @@ CREATE TABLE `students` (
 --
 
 INSERT INTO `students` (`lrn`, `lastname`, `firstname`, `middlename`, `suffix`, `age`, `birthdate`, `profile_image`) VALUES
-(108959090001, 'Odnimer', 'Jeffrey', 'Delin', '0', 22, '2003-05-31', ''),
-(108959090002, 'Agang', 'Hail', 'Delos', '0', 20, '2005-06-25', 'student_692b417c1154a3.70638029.jpg'),
-(108959090004, 'De Leon', 'Lawrence', 'Eroles', '0', 22, '2003-09-10', NULL),
-(108959090005, 'Dichosa', 'Alexis', 'Eroles', '0', 22, '2003-10-28', NULL),
-(108959090006, 'Glorioso', 'Andrei', 'Delin', '0', 23, '2002-11-22', NULL),
-(108959090007, 'Medina', 'Jessie', 'Cambarihan', '0', 21, '2004-12-19', 'student_692b4687d2f6f9.80623940.png'),
-(108959090008, 'Llanes', 'Beatrice', 'Veran', '0', 19, '2006-03-15', NULL),
-(108959090009, 'Ocan', 'Isabela', 'De Leon', '0', 21, '2004-04-21', NULL),
-(108959090010, 'Altez', 'Cyrell', 'Mapaye', '0', 20, '2005-02-11', 'student_692c86b8596413.49791755.jpg'),
-(108959090011, 'Fabriquel', 'Jnrix', 'Enad', '0', 23, '2002-01-01', NULL),
-(108959090012, 'Noscal', 'Jolo', 'Marquez', '0', 20, '2005-07-04', NULL);
+(108959090001, 'Odnimer', 'Jeffrey', 'Delin', '0', 22, '2003-05-31', NULL),
+(108959090002, 'Agang', 'Hail', 'Delos', '0', 20, '2005-06-25', 'student_6944ff322d4a40.54263198.png'),
+(108959090003, 'Noscal', 'Jolo', 'Marquez', '0', 20, '2005-07-04', NULL),
+(108959090004, 'Binabay', 'Mark Ian', 'Marasigan', '0', 21, '2004-08-09', NULL),
+(108959090005, 'De Leon', 'Lawrence', 'Eroles', '0', 22, '2003-09-10', NULL),
+(108959090006, 'Dichosa', 'Alexis', 'Eroles', '0', 22, '2003-10-28', NULL),
+(108959090007, 'Glorioso', 'Andrei', 'Delin', '0', 23, '2002-11-22', NULL),
+(108959090008, 'Medina', 'Jessie', 'Cambarihan', '0', 21, '2004-12-19', NULL),
+(108959090009, 'Llanes', 'Beatrice', 'Veran', '0', 19, '2006-03-15', NULL),
+(108959090010, 'Ocan', 'Isabela', 'De Leon', '0', 21, '2004-04-21', NULL),
+(108959090011, 'Altez', 'Cyrell', 'Mapaye', '0', 20, '2005-02-11', NULL),
+(108959090012, 'Fabriquel', 'Jnrix', 'Enad', '0', 23, '2002-01-01', NULL),
+(108959090013, 'Eroles', 'Jhon Carlo', 'Rivera', '0', 23, '2002-12-16', NULL);
 
 -- --------------------------------------------------------
 
@@ -270,13 +261,6 @@ CREATE TABLE `time_settings` (
   `allow_sat` tinyint(1) NOT NULL DEFAULT 0,
   `allow_sun` tinyint(1) NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- Dumping data for table `time_settings`
---
-
-INSERT INTO `time_settings` (`id`, `morning_start`, `morning_end`, `morning_late_threshold`, `afternoon_start`, `afternoon_end`, `updated_at`, `allow_mon`, `allow_tue`, `allow_wed`, `allow_thu`, `allow_fri`, `allow_sat`, `allow_sun`) VALUES
-(1, '01:28:00', '01:35:00', '01:30:00', '01:40:00', '01:45:00', '2025-12-03 17:27:06', 1, 1, 1, 1, 1, 0, 0);
 
 -- --------------------------------------------------------
 
@@ -308,8 +292,7 @@ INSERT INTO `users` (`user_id`, `email`, `password`, `role`, `status`) VALUES
 -- Indexes for table `advisers`
 --
 ALTER TABLE `advisers`
-  ADD PRIMARY KEY (`adviser_id`),
-  ADD UNIQUE KEY `employee_id` (`employee_id`),
+  ADD PRIMARY KEY (`employee_id`),
   ADD UNIQUE KEY `username` (`username`);
 
 --
@@ -325,8 +308,7 @@ ALTER TABLE `attendance`
 --
 ALTER TABLE `enrollments`
   ADD PRIMARY KEY (`enrollment_id`),
-  ADD KEY `lrn` (`lrn`),
-  ADD KEY `section_id` (`section_id`);
+  ADD KEY `lrn` (`lrn`);
 
 --
 -- Indexes for table `guardians`
@@ -347,8 +329,7 @@ ALTER TABLE `rfid`
 --
 ALTER TABLE `sections`
   ADD PRIMARY KEY (`section_id`),
-  ADD UNIQUE KEY `unique_adviser_per_grade` (`adviser_id`,`grade_level`),
-  ADD UNIQUE KEY `adviser_grade_unique` (`adviser_id`,`grade_level`);
+  ADD UNIQUE KEY `unique_employee_per_grade` (`employee_id`,`grade_level`);
 
 --
 -- Indexes for table `students`
@@ -374,40 +355,34 @@ ALTER TABLE `users`
 --
 
 --
--- AUTO_INCREMENT for table `advisers`
---
-ALTER TABLE `advisers`
-  MODIFY `adviser_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=15;
-
---
 -- AUTO_INCREMENT for table `attendance`
 --
 ALTER TABLE `attendance`
-  MODIFY `attendance_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=11;
+  MODIFY `attendance_id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `enrollments`
 --
 ALTER TABLE `enrollments`
-  MODIFY `enrollment_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=12;
+  MODIFY `enrollment_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=14;
 
 --
 -- AUTO_INCREMENT for table `guardians`
 --
 ALTER TABLE `guardians`
-  MODIFY `guardian_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=69;
+  MODIFY `guardian_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=14;
 
 --
 -- AUTO_INCREMENT for table `rfid`
 --
 ALTER TABLE `rfid`
-  MODIFY `rfid_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=12;
+  MODIFY `rfid_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=14;
 
 --
 -- AUTO_INCREMENT for table `sections`
 --
 ALTER TABLE `sections`
-  MODIFY `section_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=15;
+  MODIFY `section_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=13;
 
 --
 -- AUTO_INCREMENT for table `time_settings`
@@ -436,8 +411,7 @@ ALTER TABLE `attendance`
 -- Constraints for table `enrollments`
 --
 ALTER TABLE `enrollments`
-  ADD CONSTRAINT `enrollments_ibfk_1` FOREIGN KEY (`lrn`) REFERENCES `students` (`lrn`),
-  ADD CONSTRAINT `enrollments_ibfk_2` FOREIGN KEY (`section_id`) REFERENCES `sections` (`section_id`);
+  ADD CONSTRAINT `enrollments_ibfk_1` FOREIGN KEY (`lrn`) REFERENCES `students` (`lrn`);
 
 --
 -- Constraints for table `guardians`
@@ -455,7 +429,7 @@ ALTER TABLE `rfid`
 -- Constraints for table `sections`
 --
 ALTER TABLE `sections`
-  ADD CONSTRAINT `sections_ibfk_1` FOREIGN KEY (`adviser_id`) REFERENCES `advisers` (`adviser_id`);
+  ADD CONSTRAINT `sections_ibfk_1` FOREIGN KEY (`employee_id`) REFERENCES `advisers` (`employee_id`);
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;

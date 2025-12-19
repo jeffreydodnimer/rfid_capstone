@@ -56,12 +56,12 @@ if (isset($_POST['add_adviser'])) {
         exit();
     }
 
-    // NO HASHING HERE – store plain text password
     $plain_pass = $pass;
 
     $conn->begin_transaction();
     try {
-        $dup_employee = $conn->prepare("SELECT adviser_id FROM advisers WHERE employee_id = ?");
+        // FIXED: Check by employee_id (primary key)
+        $dup_employee = $conn->prepare("SELECT employee_id FROM advisers WHERE employee_id = ?");
         if (!$dup_employee) {
             throw new Exception("Prepare failed: " . $conn->error);
         }
@@ -73,7 +73,8 @@ if (isset($_POST['add_adviser'])) {
         }
         $dup_employee->close();
 
-        $dup_username = $conn->prepare("SELECT adviser_id FROM advisers WHERE username = ?");
+        // FIXED: Check username
+        $dup_username = $conn->prepare("SELECT employee_id FROM advisers WHERE username = ?");
         if (!$dup_username) {
             throw new Exception("Prepare failed: " . $conn->error);
         }
@@ -109,19 +110,22 @@ if (isset($_POST['add_adviser'])) {
 // --- Handle Delete Adviser ---
 if (isset($_POST['delete_adviser'])) {
     validate_csrf_token($adviser_error_log);
-    $adviser_id = filter_var($_POST['adviser_id'], FILTER_VALIDATE_INT);
-    if ($adviser_id === false) {
-        echo "<script>alert('Invalid Adviser ID.'); location='add_adviser.php'</script>";
+    // FIXED: Now we receive employee_id instead of adviser_id
+    $employee_id = htmlspecialchars(trim($_POST['employee_id']), ENT_QUOTES, 'UTF-8');
+    
+    if (empty($employee_id)) {
+        echo "<script>alert('Invalid Employee ID.'); location='add_adviser.php'</script>";
         exit();
     }
 
     $conn->begin_transaction();
     try {
-        $check_sections = $conn->prepare("SELECT COUNT(*) FROM sections WHERE adviser_id = ?");
+        // FIXED: Check sections using employee_id
+        $check_sections = $conn->prepare("SELECT COUNT(*) FROM sections WHERE employee_id = ?");
         if (!$check_sections) {
             throw new Exception("Prepare failed: " . $conn->error);
         }
-        $check_sections->bind_param("i", $adviser_id);
+        $check_sections->bind_param("s", $employee_id);
         $check_sections->execute();
         $check_sections->bind_result($section_count);
         $check_sections->fetch();
@@ -131,11 +135,12 @@ if (isset($_POST['delete_adviser'])) {
             throw new Exception("Cannot delete adviser. They are assigned to $section_count section(s). Please reassign or delete sections first.");
         }
 
-        $stmt = $conn->prepare("DELETE FROM advisers WHERE adviser_id = ?");
+        // FIXED: Delete using employee_id
+        $stmt = $conn->prepare("DELETE FROM advisers WHERE employee_id = ?");
         if (!$stmt) {
             throw new Exception("Prepare failed: " . $conn->error);
         }
-        $stmt->bind_param("i", $adviser_id);
+        $stmt->bind_param("s", $employee_id);
         if (!$stmt->execute()) {
             throw new Exception($stmt->error);
         }
@@ -155,7 +160,8 @@ if (isset($_POST['delete_adviser'])) {
 // --- Handle Edit Adviser ---
 if (isset($_POST['edit_adviser'])) {
     validate_csrf_token($adviser_error_log);
-    $adviser_id  = filter_var($_POST['edit_adviser_id'], FILTER_VALIDATE_INT);
+    // FIXED: Use employee_id as the identifier
+    $old_employee_id = htmlspecialchars(trim($_POST['old_employee_id']), ENT_QUOTES, 'UTF-8');
     $employee_id = htmlspecialchars(trim($_POST['edit_employee_id']), ENT_QUOTES, 'UTF-8');
     $lastname    = htmlspecialchars(trim($_POST['edit_lastname']), ENT_QUOTES, 'UTF-8');
     $firstname   = htmlspecialchars(trim($_POST['edit_firstname']), ENT_QUOTES, 'UTF-8');
@@ -163,20 +169,21 @@ if (isset($_POST['edit_adviser'])) {
     $suffix      = htmlspecialchars(trim($_POST['edit_suffix']), ENT_QUOTES, 'UTF-8');
     $gender      = ($_POST['edit_gender'] === 'female') ? 'female' : 'male';
     $username    = htmlspecialchars(trim($_POST['edit_username']), ENT_QUOTES, 'UTF-8');
-    $pass_new    = trim($_POST['edit_pass']); // plain text if changed
+    $pass_new    = trim($_POST['edit_pass']);
 
-    if ($adviser_id === false || empty($employee_id) || empty($lastname) || empty($firstname) || empty($username)) {
+    if (empty($old_employee_id) || empty($employee_id) || empty($lastname) || empty($firstname) || empty($username)) {
         echo "<script>alert('Employee ID, Last Name, First Name, and Username are required.'); location='add_adviser.php'</script>";
         exit();
     }
 
     $conn->begin_transaction();
     try {
-        $dup_employee = $conn->prepare("SELECT adviser_id FROM advisers WHERE employee_id = ? AND adviser_id != ?");
+        // FIXED: Check if new employee_id conflicts (if changed)
+        $dup_employee = $conn->prepare("SELECT employee_id FROM advisers WHERE employee_id = ? AND employee_id != ?");
         if (!$dup_employee) {
             throw new Exception("Prepare failed: " . $conn->error);
         }
-        $dup_employee->bind_param("si", $employee_id, $adviser_id);
+        $dup_employee->bind_param("ss", $employee_id, $old_employee_id);
         $dup_employee->execute();
         $dup_employee->store_result();
         if ($dup_employee->num_rows > 0) {
@@ -184,11 +191,12 @@ if (isset($_POST['edit_adviser'])) {
         }
         $dup_employee->close();
 
-        $dup_username = $conn->prepare("SELECT adviser_id FROM advisers WHERE username = ? AND adviser_id != ?");
+        // FIXED: Check username conflicts
+        $dup_username = $conn->prepare("SELECT employee_id FROM advisers WHERE username = ? AND employee_id != ?");
         if (!$dup_username) {
             throw new Exception("Prepare failed: " . $conn->error);
         }
-        $dup_username->bind_param("si", $username, $adviser_id);
+        $dup_username->bind_param("ss", $username, $old_employee_id);
         $dup_username->execute();
         $dup_username->store_result();
         if ($dup_username->num_rows > 0) {
@@ -201,15 +209,15 @@ if (isset($_POST['edit_adviser'])) {
         $param_values = [$employee_id, $lastname, $firstname, $middlename, $suffix, $gender, $username];
 
         if (!empty($pass_new)) {
-            // NO HASHING – save plain text password
             $sql .= ", pass = ?";
             $param_types .= "s";
             $param_values[] = $pass_new;
         }
 
-        $sql .= " WHERE adviser_id = ?";
-        $param_types .= "i";
-        $param_values[] = $adviser_id;
+        // FIXED: WHERE clause uses employee_id
+        $sql .= " WHERE employee_id = ?";
+        $param_types .= "s";
+        $param_values[] = $old_employee_id;
         
         $stmt = $conn->prepare($sql);
         if (!$stmt) {
@@ -269,7 +277,6 @@ if (isset($_POST['import_advisers_csv']) && isset($_FILES['adviser_csvfile']) &&
         ini_set('auto_detect_line_endings', 1);
         $header = fgetcsv($handle, 2000, ",");
 
-        // Support both 'pass' AND 'password' headers
         $expected_fields = [
             'employee_id' => ['employee_id'],
             'lastname'    => ['lastname', 'last_name'],
@@ -287,7 +294,6 @@ if (isset($_POST['import_advisers_csv']) && isset($_FILES['adviser_csvfile']) &&
             exit();
         }
 
-        // Map columns case-insensitively with multiple header options
         $col_map = [];
         foreach ($expected_fields as $field => $possible_headers) {
             $found = false;
@@ -348,14 +354,13 @@ if (isset($_POST['import_advisers_csv']) && isset($_FILES['adviser_csvfile']) &&
                 $csv_suffix      = htmlspecialchars(safeTrimCSV($data[$col_map['suffix']] ?? ''), ENT_QUOTES, 'UTF-8');
                 $csv_gender      = strtolower(safeTrimCSV($data[$col_map['gender']] ?? '')) === 'female' ? 'female' : 'male';
                 $csv_username    = htmlspecialchars(safeTrimCSV($data[$col_map['username']] ?? ''), ENT_QUOTES, 'UTF-8');
-                $csv_pass        = safeTrimCSV($data[$col_map['pass']] ?? ''); // plain text from CSV
+                $csv_pass        = safeTrimCSV($data[$col_map['pass']] ?? '');
 
                 if (empty($csv_employee_id) || empty($csv_lastname) || empty($csv_firstname) || empty($csv_username) || empty($csv_pass)) {
                     $errors[] = "Row $row_num: Missing required fields.";
                     continue;
                 }
 
-                // NO HASHING – save plain text CSV password
                 $stmt->bind_param(
                     "ssssssss",
                     $csv_employee_id,
@@ -399,9 +404,8 @@ if (isset($_POST['import_advisers_csv']) && isset($_FILES['adviser_csvfile']) &&
     }
 }
 
-// --- Fetch advisers for display ---
-// NOTE: now also selecting `pass`
-$advisers_result = $conn->query("SELECT adviser_id, employee_id, lastname, firstname, middlename, suffix, gender, username, pass FROM advisers ORDER BY lastname, firstname");
+// --- Fetch advisers for display (FIXED: removed adviser_id) ---
+$advisers_result = $conn->query("SELECT employee_id, lastname, firstname, middlename, suffix, gender, username, pass FROM advisers ORDER BY lastname, firstname");
 if (!$advisers_result) {
     error_log(date('c') . " Fetch Advisers Error: " . $conn->error . "\n", 3, $general_error_log);
     die("Error fetching advisers.");
@@ -525,15 +529,13 @@ if (!$advisers_result) {
             border-radius: 8px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         }
-        /* Styles for modal headers matching guardian.php */
         .modal-header {
-            background-color: #007bff; /* Primary blue for header */
+            background-color: #007bff;
             color: white;
         }
         .modal-header .btn-close-white {
-            filter: invert(1); /* Makes the close button white */
+            filter: invert(1);
         }
-        /* Styles for primary buttons matching guardian.php */
         .btn-primary {
             box-shadow: 0 4px 8px rgba(0,0,0,0.1);
             border-radius: 15px;
@@ -586,9 +588,10 @@ if (!$advisers_result) {
         });
     });
 
-    function openEditAdviserModal(adviser_id, employee_id, lastname, firstname, middlename, suffix, gender, username) {
+    // FIXED: Now passes employee_id instead of adviser_id
+    function openEditAdviserModal(employee_id, lastname, firstname, middlename, suffix, gender, username) {
         const editModal = new bootstrap.Modal(document.getElementById('editAdviserModal'));
-        document.getElementById('edit_adviser_id').value = adviser_id;
+        document.getElementById('old_employee_id').value = employee_id;
         document.getElementById('edit_employee_id').value = employee_id;
         document.getElementById('edit_lastname').value = lastname;
         document.getElementById('edit_firstname').value = firstname;
@@ -651,7 +654,7 @@ if (!$advisers_result) {
                                         <th class="border px-3 py-2">Suffix</th>
                                         <th class="border px-3 py-2">Gender</th>
                                         <th class="border px-3 py-2">Username</th>
-                                        <th class="border px-3 py-2">Password</th> <!-- NEW COLUMN -->
+                                        <th class="border px-3 py-2">Password</th>
                                         <th class="border px-3 py-2">Actions</th>
                                     </tr>
                                 </thead>
@@ -673,11 +676,10 @@ if (!$advisers_result) {
                                         </td>
                                         <td class="border px-3 py-2 font-mono text-sm"><?= htmlspecialchars($row['username']) ?></td>
                                         <td class="border px-3 py-2 font-mono text-sm">
-                                            <?= htmlspecialchars($row['pass']) ?> <!-- SHOW PASSWORD -->
+                                            <?= htmlspecialchars($row['pass']) ?>
                                         </td>
                                         <td class="border px-3 py-2 actions-cell">
                                             <button onclick="openEditAdviserModal(
-                                                <?= $row['adviser_id'] ?>,
                                                 '<?= htmlspecialchars($row['employee_id'], ENT_QUOTES) ?>',
                                                 '<?= htmlspecialchars($row['lastname'], ENT_QUOTES) ?>',
                                                 '<?= htmlspecialchars($row['firstname'], ENT_QUOTES) ?>',
@@ -690,7 +692,7 @@ if (!$advisers_result) {
                                             </button>
                                             <form method="POST" class="d-inline" style="display:inline-block;" onsubmit="return confirm('Delete <?= htmlspecialchars($row['firstname'] . ' ' . $row['lastname']) ?>? This is permanent.');">
                                                 <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
-                                                <input type="hidden" name="adviser_id" value="<?= $row['adviser_id'] ?>">
+                                                <input type="hidden" name="employee_id" value="<?= htmlspecialchars($row['employee_id']) ?>">
                                                 <button type="submit" name="delete_adviser" class="action-icon-btn delete-icon" title="Delete Adviser">
                                                     <span class="material-symbols-outlined">delete</span>
                                                 </button>
@@ -787,7 +789,7 @@ if (!$advisers_result) {
             <div class="modal-content">
                 <form method="post">
                     <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
-                    <input type="hidden" id="edit_adviser_id" name="edit_adviser_id">
+                    <input type="hidden" id="old_employee_id" name="old_employee_id">
                     <div class="modal-header">
                         <h5 class="modal-title" id="editAdviserModalLabel">
                             <span class="material-symbols-outlined me-2">edit</span>Edit Adviser
@@ -863,7 +865,8 @@ if (!$advisers_result) {
                             <label for="adviser_csvfile" class="form-label">Select CSV File *</label>
                             <input type="file" name="adviser_csvfile" id="adviser_csvfile" class="form-control" accept=".csv" required>
                             <small class="text-muted">
-                                Max 5MB | Columns: <code>employee_id, lastname, firstname, middlename, suffix, gender, username, pass OR password</code><br>
+                                Max 5MB | Columns: <code>employee_id, lastname, firstname, middlename, suffix, gender, username, pass OR password</code>
+                            </small>
                         </div>
                     </div>
                     <div class="modal-footer">

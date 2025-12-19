@@ -36,8 +36,6 @@ function validate_csrf_token() {
     }
 }
 
-// Utility: reset AUTO_INCREMENT if sections table is empty
-// Note: This helps for manual deletes, but TRUNCATE is better for bulk imports
 function reset_sections_autoincrement($conn) {
     $count_res = $conn->query("SELECT COUNT(*) AS cnt FROM sections");
     if ($count_res) {
@@ -48,35 +46,22 @@ function reset_sections_autoincrement($conn) {
     }
 }
 
-/****************
-SECTION MANAGEMENT
-*****************/
-
-// Define available grade levels (used for suggestions in JS, but not strict validation anymore)
 $available_grade_levels = [
-    'Grade 7',
-    'Grade 8',
-    'Grade 9',
-    'Grade 10',
-    'Grade 11',
-    '11-GAS', // Example of custom grade level if desired
-    'Grade 12',
-    '12-GAS'  // Example of custom grade level if desired
+    'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10', 'Grade 11', '11-GAS', 'Grade 12', '12-GAS'
 ];
 
-// --- Handle Add Section ---
+// --- Handle Add Section (FIXED: using employee_id) ---
 if (isset($_POST['add_section'])) {
     validate_csrf_token();
     $section_name = htmlspecialchars(trim($_POST['section_name']), ENT_QUOTES, 'UTF-8');
     $grade_level  = htmlspecialchars(trim($_POST['grade_level_input']), ENT_QUOTES, 'UTF-8');
-    $adviser_id   = filter_var($_POST['adviser_id'], FILTER_VALIDATE_INT);
+    $employee_id   = filter_var($_POST['employee_id'], FILTER_VALIDATE_INT);
 
-    if (empty($section_name) || empty($grade_level) || $adviser_id === false || $adviser_id === null) {
+    if (empty($section_name) || empty($grade_level) || $employee_id === false || $employee_id === null) {
         echo "<script>alert('All fields are required. Please ensure Section Name, Grade Level, and Adviser are provided.'); location='section_student.php'</script>";
         exit();
     }
 
-    // Check for duplicate section name within the same grade level
     $dup_stmt = $conn->prepare("SELECT section_id FROM sections WHERE section_name = ? AND grade_level = ?");
     if (!$dup_stmt) {
         error_log(date('c') . " PREPARE ERR (Add Section Dup Check): " . $conn->error . "\n", 3, $section_error_log);
@@ -91,14 +76,14 @@ if (isset($_POST['add_section'])) {
     }
     $dup_stmt->close();
 
-    // ✅ FIXED: Check if adviser is already assigned to ANY section
-    $adviser_check = $conn->prepare("SELECT section_id FROM sections WHERE adviser_id = ?");
+    // FIXED: Check if employee is already assigned to ANY section
+    $adviser_check = $conn->prepare("SELECT section_id FROM sections WHERE employee_id = ?");
     if (!$adviser_check) {
         error_log(date('c') . " PREPARE ERR (Add Section Adviser Check): " . $conn->error . "\n", 3, $section_error_log);
         echo "<script>alert('Database error during adviser check.'); location='section_student.php'</script>";
         exit();
     }
-    $adviser_check->bind_param("i", $adviser_id);
+    $adviser_check->bind_param("i", $employee_id);
     $adviser_check->execute();
     if ($adviser_check->get_result()->num_rows > 0) {
         echo "<script>alert('Error: This adviser is already assigned to another section. One adviser can only manage one section.'); location='section_student.php'</script>";
@@ -106,13 +91,14 @@ if (isset($_POST['add_section'])) {
     }
     $adviser_check->close();
 
-    $stmt = $conn->prepare("INSERT INTO sections (section_name, grade_level, adviser_id) VALUES (?, ?, ?)");
+    // FIXED: Insert using employee_id
+    $stmt = $conn->prepare("INSERT INTO sections (section_name, grade_level, employee_id) VALUES (?, ?, ?)");
     if (!$stmt) {
         error_log(date('c') . " PREPARE ERR (Add Section Insert): " . $conn->error . "\n", 3, $section_error_log);
         echo "<script>alert('Database error preparing insert statement.'); location='section_student.php'</script>";
         exit();
     }
-    $stmt->bind_param("ssi", $section_name, $grade_level, $adviser_id);
+    $stmt->bind_param("ssi", $section_name, $grade_level, $employee_id);
     if ($stmt->execute()) {
         header("Location: section_student.php?status=added");
     } else {
@@ -122,20 +108,19 @@ if (isset($_POST['add_section'])) {
     exit();
 }
 
-// --- Handle Edit Section ---
+// --- Handle Edit Section (FIXED: using employee_id) ---
 if (isset($_POST['edit_section'])) {
     validate_csrf_token();
     $section_id   = filter_var($_POST['edit_section_id'], FILTER_VALIDATE_INT);
     $section_name = htmlspecialchars(trim($_POST['edit_section_name']), ENT_QUOTES, 'UTF-8');
     $grade_level  = htmlspecialchars(trim($_POST['edit_grade_level_input']), ENT_QUOTES, 'UTF-8');
-    $adviser_id   = filter_var($_POST['edit_adviser_id'], FILTER_VALIDATE_INT);
+    $employee_id   = filter_var($_POST['edit_employee_id'], FILTER_VALIDATE_INT);
 
-    if (!$section_id || empty($section_name) || empty($grade_level) || $adviser_id === false || $adviser_id === null) {
+    if (!$section_id || empty($section_name) || empty($grade_level) || $employee_id === false || $employee_id === null) {
         echo "<script>alert('All fields are required for editing. Please ensure Section Name, Grade Level, and Adviser are provided.'); location='section_student.php'</script>";
         exit();
     }
 
-    // Check for duplicate section name (excluding current record)
     $dup_stmt = $conn->prepare("SELECT section_id FROM sections WHERE section_name = ? AND grade_level = ? AND section_id != ?");
     if (!$dup_stmt) {
         error_log(date('c') . " PREPARE ERR (Edit Section Dup Check): " . $conn->error . "\n", 3, $section_error_log);
@@ -150,14 +135,14 @@ if (isset($_POST['edit_section'])) {
     }
     $dup_stmt->close();
 
-    // ✅ FIXED: Check if adviser is already assigned to ANY other section (excluding current section)
-    $adviser_check = $conn->prepare("SELECT section_id FROM sections WHERE adviser_id = ? AND section_id != ?");
+    // FIXED: Check if employee is already assigned to another section
+    $adviser_check = $conn->prepare("SELECT section_id FROM sections WHERE employee_id = ? AND section_id != ?");
     if (!$adviser_check) {
         error_log(date('c') . " PREPARE ERR (Edit Section Adviser Check): " . $conn->error . "\n", 3, $section_error_log);
         echo "<script>alert('Database error during adviser check.'); location='section_student.php'</script>";
         exit();
     }
-    $adviser_check->bind_param("ii", $adviser_id, $section_id);
+    $adviser_check->bind_param("ii", $employee_id, $section_id);
     $adviser_check->execute();
     if ($adviser_check->get_result()->num_rows > 0) {
         echo "<script>alert('Error: This adviser is already assigned to another section. One adviser can only manage one section.'); location='section_student.php'</script>";
@@ -165,13 +150,14 @@ if (isset($_POST['edit_section'])) {
     }
     $adviser_check->close();
 
-    $stmt = $conn->prepare("UPDATE sections SET section_name=?, grade_level=?, adviser_id=? WHERE section_id=?");
+    // FIXED: Update using employee_id
+    $stmt = $conn->prepare("UPDATE sections SET section_name=?, grade_level=?, employee_id=? WHERE section_id=?");
     if (!$stmt) {
         error_log(date('c') . " PREPARE ERR (Edit Section Update): " . $conn->error . "\n", 3, $section_error_log);
         echo "<script>alert('Database error preparing update statement.'); location='section_student.php'</script>";
         exit();
     }
-    $stmt->bind_param("ssii", $section_name, $grade_level, $adviser_id, $section_id);
+    $stmt->bind_param("ssii", $section_name, $grade_level, $employee_id, $section_id);
     if ($stmt->execute()) {
         header("Location: section_student.php?status=updated");
     } else {
@@ -204,9 +190,6 @@ if (isset($_POST['delete_section'])) {
     }
 }
 
-/************************************
-CSV IMPORT FOR SECTIONS (IMPROVED)
-************************************/
 function safeTrimCSV($value) {
     if (is_null($value) || is_array($value) || is_bool($value) || is_object($value)) {
         return '';
@@ -214,6 +197,7 @@ function safeTrimCSV($value) {
     return trim(preg_replace('/^\xEF\xBB\xBF/', '', (string)$value));
 }
 
+// --- CSV Import (FIXED: using employee_id) ---
 if (isset($_POST['import_sections_csv']) && isset($_FILES['sections_csvfile']) && $_FILES['sections_csvfile']['error'] === UPLOAD_ERR_OK) {
     validate_csrf_token();
     $tmpPath  = $_FILES['sections_csvfile']['tmp_name'];
@@ -228,23 +212,11 @@ if (isset($_POST['import_sections_csv']) && isset($_FILES['sections_csvfile']) &
         echo "<script>alert('❌ File size exceeds 5MB limit.'); location='section_student.php'</script>";
         exit();
     }
-    if ($conn->connect_error) {
-        error_log(date('c') . " DB Conn Error during CSV import: " . $conn->connect_error . "\n", 3, $section_error_log);
-        echo "<script>alert('Database connection lost. Cannot import CSV.'); location='section_student.php'</script>";
-        exit();
-    }
     
     if (($handle = fopen($tmpPath, 'r')) !== false) {
-        
-        // ============================================================
-        // [MODIFIED] RESET LOGIC: CLEAR TABLE AND RESET ID TO 1
-        // ============================================================
-        // We temporarily disable Foreign Key Checks to allow Truncate
-        // Warning: This deletes ALL existing sections before importing the new ones.
         $conn->query("SET FOREIGN_KEY_CHECKS = 0");
         $conn->query("TRUNCATE TABLE sections");
         $conn->query("SET FOREIGN_KEY_CHECKS = 1");
-        // ============================================================
 
         ini_set('auto_detect_line_endings', 1);
         $header = fgetcsv($handle, 2000, ",");
@@ -279,10 +251,9 @@ if (isset($_POST['import_sections_csv']) && isset($_FILES['sections_csvfile']) &
             }
         }
 
-        $lookup_stmt = $conn->prepare("SELECT adviser_id FROM advisers WHERE CONCAT(firstname, ' ', lastname) = ? LIMIT 1");
-        // Note: We removed the duplicate check here because we Truncated (cleared) the table above, 
-        // so the table is empty. However, we keep the insert logic safe.
-        $insert_stmt = $conn->prepare("INSERT INTO sections (section_name, grade_level, adviser_id) VALUES (?, ?, ?)");
+        // FIXED: Lookup using employee_id
+        $lookup_stmt = $conn->prepare("SELECT employee_id FROM advisers WHERE CONCAT(firstname, ' ', lastname) = ? LIMIT 1");
+        $insert_stmt = $conn->prepare("INSERT INTO sections (section_name, grade_level, employee_id) VALUES (?, ?, ?)");
 
         if (!$lookup_stmt || !$insert_stmt) {
             fclose($handle);
@@ -318,9 +289,9 @@ if (isset($_POST['import_sections_csv']) && isset($_FILES['sections_csvfile']) &
                 continue;
             }
             $adviser_data = $lookup_res->fetch_assoc();
-            $adviser_id = (int)$adviser_data['adviser_id'];
+            $employee_id = (int)$adviser_data['employee_id'];
 
-            $insert_stmt->bind_param("ssi", $csv_section, $csv_grade, $adviser_id);
+            $insert_stmt->bind_param("ssi", $csv_section, $csv_grade, $employee_id);
             if ($insert_stmt->execute()) {
                 $rowCount++;
             } else {
@@ -333,7 +304,7 @@ if (isset($_POST['import_sections_csv']) && isset($_FILES['sections_csvfile']) &
         $lookup_stmt->close();
         $insert_stmt->close();
 
-        $message = "CSV Import Complete Successfully imported";
+        $message = "CSV Import Complete Successfully imported: {$rowCount} sections";
         if (!empty($errors)) {
             $message .= "\\n❌ Errors (" . count($errors) . " rows failed):\\n" . implode("\\n", array_slice($errors, 0, 5));
             if (count($errors) > 5) {
@@ -343,25 +314,24 @@ if (isset($_POST['import_sections_csv']) && isset($_FILES['sections_csvfile']) &
         echo "<script>alert(" . json_encode($message) . "); location='section_student.php'</script>";
         exit();
     } else {
-        echo "<script>alert('❌ Failed to open CSV file. Please check file permissions or file integrity.'); location='section_student.php'</script>";
+        echo "<script>alert('❌ Failed to open CSV file.'); location='section_student.php'</script>";
         exit();
     }
 }
 
-// --- Fetch Advisors for dropdown and datalist ---
-$advisers_result = $conn->query("SELECT adviser_id, CONCAT_WS(' ', firstname, lastname) AS adviser_fullname FROM advisers ORDER BY lastname, firstname");
+// --- Fetch Advisors (FIXED: using employee_id) ---
+$advisers_result = $conn->query("SELECT employee_id, CONCAT_WS(' ', firstname, lastname) AS adviser_fullname FROM advisers ORDER BY lastname, firstname");
 $all_advisers_php = $advisers_result ? $advisers_result->fetch_all(MYSQLI_ASSOC) : [];
-$all_advisers_json = json_encode($all_advisers_php); // Pass to JS
+$all_advisers_json = json_encode($all_advisers_php);
 
-// Pass available grade levels to JS (for datalist suggestions only now)
 $available_grade_levels_json = json_encode($available_grade_levels);
 
-// --- Fetch Sections for Table ---
+// --- Fetch Sections (FIXED: using employee_id) ---
 $sections_query = "
-    SELECT s.section_id, s.section_name, s.grade_level, s.adviser_id,
+    SELECT s.section_id, s.section_name, s.grade_level, s.employee_id,
            CONCAT_WS(' ', adv.firstname, adv.lastname) AS adviser_fullname
     FROM sections s
-    LEFT JOIN advisers adv ON s.adviser_id = adv.adviser_id
+    LEFT JOIN advisers adv ON s.employee_id = adv.employee_id
     ORDER BY s.grade_level, s.section_name
 ";
 $sections_result = $conn->query($sections_query);
@@ -372,7 +342,6 @@ $sections_result = $conn->query($sections_query);
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Sections Dashboard</title>
-    <!-- Custom fonts and styles -->
     <link href="vendor/fontawesome-free/css/all.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" />
     <link href="https://fonts.googleapis.com/css?family=Nunito:200,300,400,600,700,800,900" rel="stylesheet">
@@ -552,8 +521,8 @@ $sections_result = $conn->query($sections_query);
                             "section_id" => $row["section_id"],
                             "section_name" => $row["section_name"],
                             "grade_level" => $row["grade_level"],
-                            "adviser_id" => $row["adviser_id"],
-                            "adviser_fullname" => $row["adviser_fullname"] // Pass full name for display
+                            "employee_id" => $row["employee_id"],
+                            "adviser_fullname" => $row["adviser_fullname"]
                           ]) ?>)' class="action-icon-btn edit-icon" title="Edit Section">
                             <span class="material-symbols-outlined">edit</span>
                           </button>
@@ -608,7 +577,7 @@ $sections_result = $conn->query($sections_query);
                 <label for="add_adviser_name_input" class="form-label">Adviser</label>
                 <input type="text" class="form-control" id="add_adviser_name_input" list="advisers_datalist_add" placeholder="Select or type Adviser Name" required>
                 <datalist id="advisers_datalist_add"></datalist>
-                <input type="hidden" id="add_adviser_id_hidden" name="adviser_id">
+                <input type="hidden" id="add_employee_id_hidden" name="employee_id">
               </div>
             </div>
             <div class="modal-footer">
@@ -649,7 +618,7 @@ $sections_result = $conn->query($sections_query);
                 <label for="edit_adviser_name_input" class="form-label">Adviser</label>
                 <input type="text" class="form-control" id="edit_adviser_name_input" list="advisers_datalist_edit" placeholder="Select or type Adviser Name" required>
                 <datalist id="advisers_datalist_edit"></datalist>
-                <input type="hidden" id="edit_adviser_id_hidden" name="edit_adviser_id">
+                <input type="hidden" id="edit_employee_id_hidden" name="edit_employee_id">
               </div>
             </div>
             <div class="modal-footer">
@@ -689,79 +658,61 @@ $sections_result = $conn->query($sections_query);
     </div>
 
     <script>
-      // Pass PHP data to JavaScript
       const allAdvisersData = <?= $all_advisers_json ?>;
-      const availableGradeLevels = <?= $available_grade_levels_json ?>; // Still used for datalist suggestions
+      const availableGradeLevels = <?= $available_grade_levels_json ?>;
 
-      /**
-       * Populates a datalist with adviser names and their IDs.
-       * @param {string} datalistId The ID of the <datalist> element.
-       * @param {string|null} initialAdviserName The full name of the adviser to pre-fill the input (for edit).
-       * @param {number|null} initialAdviserId The ID of the adviser to pre-fill the hidden input (for edit).
-       * @param {string} adviserNameInputId The ID of the text input connected to the datalist.
-       * @param {string} adviserIdHiddenId The ID of the hidden input for adviser_id.
-       */
-      function populateAdvisersDatalist(adviserNameInputId, datalistId, adviserIdHiddenId, initialAdviserName = null, initialAdviserId = null) {
+      // FIXED: Changed all references from adviser_id to employee_id
+      function populateAdvisersDatalist(adviserNameInputId, datalistId, employeeIdHiddenId, initialAdviserName = null, initialEmployeeId = null) {
           const adviserDatalist = document.getElementById(datalistId);
           const adviserNameInput = document.getElementById(adviserNameInputId);
-          const adviserIdHidden = document.getElementById(adviserIdHiddenId);
+          const employeeIdHidden = document.getElementById(employeeIdHiddenId);
 
-          adviserDatalist.innerHTML = ''; // Clear existing options
+          adviserDatalist.innerHTML = '';
 
           allAdvisersData.forEach(adviser => {
               const option = document.createElement('option');
               option.value = adviser.adviser_fullname;
-              option.setAttribute('data-adviser-id', adviser.adviser_id);
+              option.setAttribute('data-employee-id', adviser.employee_id);
               adviserDatalist.appendChild(option);
           });
 
-          // Set initial values for edit modal
-          if (initialAdviserName && initialAdviserId) {
+          if (initialAdviserName && initialEmployeeId) {
               adviserNameInput.value = initialAdviserName;
-              adviserIdHidden.value = initialAdviserId;
+              employeeIdHidden.value = initialEmployeeId;
           } else {
-              adviserNameInput.value = ''; // Ensure input is cleared if no initial value
-              adviserIdHidden.value = '';
+              adviserNameInput.value = '';
+              employeeIdHidden.value = '';
           }
       }
 
-      /**
-       * Handles input changes on the adviser name text field to update the hidden adviser ID.
-       * @param {string} adviserNameInputId The ID of the text input for adviser name.
-       * @param {string} datalistId The ID of the datalist providing suggestions.
-       * @param {string} adviserIdHiddenId The ID of the hidden input for adviser_id.
-       */
-      function handleAdviserInput(adviserNameInputId, datalistId, adviserIdHiddenId) {
+      function handleAdviserInput(adviserNameInputId, datalistId, employeeIdHiddenId) {
           const adviserNameInput = document.getElementById(adviserNameInputId);
           const adviserDatalist = document.getElementById(datalistId);
-          const adviserIdHidden = document.getElementById(adviserIdHiddenId);
+          const employeeIdHidden = document.getElementById(employeeIdHiddenId);
 
-          // Listen for 'input' to update the hidden ID as user types or selects
           adviserNameInput.addEventListener('input', function() {
               const selectedOption = Array.from(adviserDatalist.options).find(option => option.value === this.value);
               if (selectedOption) {
-                  adviserIdHidden.value = selectedOption.getAttribute('data-adviser-id');
-                  adviserNameInput.setCustomValidity(''); // Clear custom validation message
+                  employeeIdHidden.value = selectedOption.getAttribute('data-employee-id');
+                  adviserNameInput.setCustomValidity('');
               } else {
-                  adviserIdHidden.value = ''; // Clear hidden ID if no match
+                  employeeIdHidden.value = '';
                   adviserNameInput.setCustomValidity('Please select a valid adviser from the list or type an exact match.');
               }
           });
 
-          // Listen for 'change' (when input loses focus) to ensure ID is set if user types then clicks away
           adviserNameInput.addEventListener('change', function() {
               const selectedOption = Array.from(adviserDatalist.options).find(option => option.value === this.value);
               if (selectedOption) {
-                  adviserIdHidden.value = selectedOption.getAttribute('data-adviser-id');
+                  employeeIdHidden.value = selectedOption.getAttribute('data-employee-id');
                   adviserNameInput.setCustomValidity('');
               } else {
-                  adviserIdHidden.value = '';
+                  employeeIdHidden.value = '';
                   adviserNameInput.setCustomValidity('Please select a valid adviser from the list or type an exact match.');
               }
           });
       }
 
-      // Function to populate the grade level datalist (static, but good practice for suggestions)
       function populateGradeLevelDatalist(datalistId) {
           const datalist = document.getElementById(datalistId);
           datalist.innerHTML = '';
@@ -772,9 +723,7 @@ $sections_result = $conn->query($sections_query);
           });
       }
 
-      // --- Main Document Ready ---
       $(document).ready(function(){
-        // Initialize search functionality
         const searchInput = $('#searchSection');
         const clearBtn = $('#clearSearch');
         const tableRows = $('.custom-table tbody tr');
@@ -803,7 +752,6 @@ $sections_result = $conn->query($sections_query);
         });
         searchInput.on('keydown', function(e) { if(e.key === 'Escape') clearBtn.click(); });
       
-        // Auto-dismiss alerts and clean URL
         setTimeout(function(){
           $(".alert").alert('close');
           if (window.history.replaceState){
@@ -813,23 +761,19 @@ $sections_result = $conn->query($sections_query);
           }
         }, 5000);
 
-        // --- Add Section Modal Interactions ---
         $('#addSectionModal').on('show.bs.modal', function() {
             populateGradeLevelDatalist('grade_levels_datalist_add');
-            populateAdvisersDatalist('add_adviser_name_input', 'advisers_datalist_add', 'add_adviser_id_hidden');
-            // Clear any previous custom validity messages for Adviser
+            populateAdvisersDatalist('add_adviser_name_input', 'advisers_datalist_add', 'add_employee_id_hidden');
             document.getElementById('add_adviser_name_input').setCustomValidity('');
         });
-        handleAdviserInput('add_adviser_name_input', 'advisers_datalist_add', 'add_adviser_id_hidden');
+        handleAdviserInput('add_adviser_name_input', 'advisers_datalist_add', 'add_employee_id_hidden');
 
-        // Client-side validation for Add Section form
         document.getElementById('addSectionForm').addEventListener('submit', function(event) {
-            // Adviser validation
-            const adviserIdHidden = document.getElementById('add_adviser_id_hidden');
+            const employeeIdHidden = document.getElementById('add_employee_id_hidden');
             const adviserNameInput = document.getElementById('add_adviser_name_input');
-            if (!adviserIdHidden.value) {
+            if (!employeeIdHidden.value) {
                 adviserNameInput.setCustomValidity('Please select a valid Adviser from the suggestions or type an exact match.');
-                event.preventDefault(); // Prevent form submission
+                event.preventDefault();
                 adviserNameInput.reportValidity();
                 return;
             } else {
@@ -837,27 +781,21 @@ $sections_result = $conn->query($sections_query);
             }
         });
 
-        // Reset add form on modal close
         document.getElementById('addSectionModal').addEventListener('hidden.bs.modal', function (){
             const form = document.getElementById('addSectionForm');
             form.reset();
-            document.getElementById('add_adviser_id_hidden').value = '';
-            // Clear custom validity messages on reset for Adviser
+            document.getElementById('add_employee_id_hidden').value = '';
             document.getElementById('add_adviser_name_input').setCustomValidity('');
         });
 
-        // --- Edit Section Modal Interactions ---
-        // handleAdviserInput for edit modal
-        handleAdviserInput('edit_adviser_name_input', 'advisers_datalist_edit', 'edit_adviser_id_hidden');
+        handleAdviserInput('edit_adviser_name_input', 'advisers_datalist_edit', 'edit_employee_id_hidden');
 
-        // Client-side validation for Edit Section form
         document.getElementById('editSectionForm').addEventListener('submit', function(event) {
-            // Adviser validation
-            const adviserIdHidden = document.getElementById('edit_adviser_id_hidden');
+            const employeeIdHidden = document.getElementById('edit_employee_id_hidden');
             const adviserNameInput = document.getElementById('edit_adviser_name_input');
-            if (!adviserIdHidden.value) {
+            if (!employeeIdHidden.value) {
                 adviserNameInput.setCustomValidity('Please select a valid Adviser from the suggestions or type an exact match.');
-                event.preventDefault(); // Prevent form submission
+                event.preventDefault();
                 adviserNameInput.reportValidity();
                 return;
             } else {
@@ -866,29 +804,22 @@ $sections_result = $conn->query($sections_query);
         });
       });
       
-      /**
-       * Opens the Edit Section Modal and populates its fields.
-       * @param {object} data An object containing section details including adviser_fullname.
-       */
       function openEditSectionModal(data) {
           const editModal = new bootstrap.Modal(document.getElementById('editSectionModal'));
           
           document.getElementById('edit_section_id').value   = data.section_id;
           document.getElementById('edit_section_name').value = data.section_name;
-          
-          // Set grade level input value and ensure datalist is populated
           document.getElementById('edit_grade_level_input').value = data.grade_level;
           populateGradeLevelDatalist('grade_levels_datalist_edit');
 
-          // Populate adviser datalist and set initial values for adviser inputs
           populateAdvisersDatalist(
               'edit_adviser_name_input',
               'advisers_datalist_edit',
-              'edit_adviser_id_hidden',
+              'edit_employee_id_hidden',
               data.adviser_fullname,
-              data.adviser_id
+              data.employee_id
           );
-          document.getElementById('edit_adviser_name_input').setCustomValidity(''); // Clear custom validity
+          document.getElementById('edit_adviser_name_input').setCustomValidity('');
           
           editModal.show();
       }
