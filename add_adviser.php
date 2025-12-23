@@ -48,11 +48,10 @@ if (isset($_POST['add_adviser'])) {
     $middlename  = htmlspecialchars(trim($_POST['middlename']), ENT_QUOTES, 'UTF-8');
     $suffix      = htmlspecialchars(trim($_POST['suffix']), ENT_QUOTES, 'UTF-8');
     $gender      = ($_POST['gender'] === 'male') ? 'male' : 'female';
-    $username    = htmlspecialchars(trim($_POST['username']), ENT_QUOTES, 'UTF-8');
     $pass        = $_POST['pass']; // store as plain text
 
-    if (empty($employee_id) || empty($lastname) || empty($firstname) || empty($username) || empty($pass)) {
-        echo "<script>alert('Employee ID, Last Name, First Name, Username, and Password are required.'); location='add_adviser.php'</script>";
+    if (empty($employee_id) || empty($lastname) || empty($firstname) || empty($pass)) {
+        echo "<script>alert('Employee ID, Last Name, First Name, and Password are required.'); location='add_adviser.php'</script>";
         exit();
     }
 
@@ -60,7 +59,7 @@ if (isset($_POST['add_adviser'])) {
 
     $conn->begin_transaction();
     try {
-        // FIXED: Check by employee_id (primary key)
+        // Check by employee_id (primary key)
         $dup_employee = $conn->prepare("SELECT employee_id FROM advisers WHERE employee_id = ?");
         if (!$dup_employee) {
             throw new Exception("Prepare failed: " . $conn->error);
@@ -73,24 +72,11 @@ if (isset($_POST['add_adviser'])) {
         }
         $dup_employee->close();
 
-        // FIXED: Check username
-        $dup_username = $conn->prepare("SELECT employee_id FROM advisers WHERE username = ?");
-        if (!$dup_username) {
-            throw new Exception("Prepare failed: " . $conn->error);
-        }
-        $dup_username->bind_param("s", $username);
-        $dup_username->execute();
-        $dup_username->store_result();
-        if ($dup_username->num_rows > 0) {
-            throw new Exception("Username '$username' already exists.");
-        }
-        $dup_username->close();
-
-        $stmt = $conn->prepare("INSERT INTO advisers (employee_id, lastname, firstname, middlename, suffix, gender, username, pass) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt = $conn->prepare("INSERT INTO advisers (employee_id, lastname, firstname, middlename, suffix, gender, pass) VALUES (?, ?, ?, ?, ?, ?, ?)");
         if (!$stmt) {
             throw new Exception("Prepare failed: " . $conn->error);
         }
-        $stmt->bind_param("ssssssss", $employee_id, $lastname, $firstname, $middlename, $suffix, $gender, $username, $plain_pass);
+        $stmt->bind_param("sssssss", $employee_id, $lastname, $firstname, $middlename, $suffix, $gender, $plain_pass);
         if (!$stmt->execute()) {
             throw new Exception($stmt->error);
         }
@@ -110,7 +96,6 @@ if (isset($_POST['add_adviser'])) {
 // --- Handle Delete Adviser ---
 if (isset($_POST['delete_adviser'])) {
     validate_csrf_token($adviser_error_log);
-    // FIXED: Now we receive employee_id instead of adviser_id
     $employee_id = htmlspecialchars(trim($_POST['employee_id']), ENT_QUOTES, 'UTF-8');
     
     if (empty($employee_id)) {
@@ -120,7 +105,7 @@ if (isset($_POST['delete_adviser'])) {
 
     $conn->begin_transaction();
     try {
-        // FIXED: Check sections using employee_id
+        // Check sections using employee_id
         $check_sections = $conn->prepare("SELECT COUNT(*) FROM sections WHERE employee_id = ?");
         if (!$check_sections) {
             throw new Exception("Prepare failed: " . $conn->error);
@@ -135,7 +120,7 @@ if (isset($_POST['delete_adviser'])) {
             throw new Exception("Cannot delete adviser. They are assigned to $section_count section(s). Please reassign or delete sections first.");
         }
 
-        // FIXED: Delete using employee_id
+        // Delete using employee_id
         $stmt = $conn->prepare("DELETE FROM advisers WHERE employee_id = ?");
         if (!$stmt) {
             throw new Exception("Prepare failed: " . $conn->error);
@@ -160,7 +145,6 @@ if (isset($_POST['delete_adviser'])) {
 // --- Handle Edit Adviser ---
 if (isset($_POST['edit_adviser'])) {
     validate_csrf_token($adviser_error_log);
-    // FIXED: Use employee_id as the identifier
     $old_employee_id = htmlspecialchars(trim($_POST['old_employee_id']), ENT_QUOTES, 'UTF-8');
     $employee_id = htmlspecialchars(trim($_POST['edit_employee_id']), ENT_QUOTES, 'UTF-8');
     $lastname    = htmlspecialchars(trim($_POST['edit_lastname']), ENT_QUOTES, 'UTF-8');
@@ -168,17 +152,16 @@ if (isset($_POST['edit_adviser'])) {
     $middlename  = htmlspecialchars(trim($_POST['edit_middlename']), ENT_QUOTES, 'UTF-8');
     $suffix      = htmlspecialchars(trim($_POST['edit_suffix']), ENT_QUOTES, 'UTF-8');
     $gender      = ($_POST['edit_gender'] === 'female') ? 'female' : 'male';
-    $username    = htmlspecialchars(trim($_POST['edit_username']), ENT_QUOTES, 'UTF-8');
     $pass_new    = trim($_POST['edit_pass']);
 
-    if (empty($old_employee_id) || empty($employee_id) || empty($lastname) || empty($firstname) || empty($username)) {
-        echo "<script>alert('Employee ID, Last Name, First Name, and Username are required.'); location='add_adviser.php'</script>";
+    if (empty($old_employee_id) || empty($employee_id) || empty($lastname) || empty($firstname)) {
+        echo "<script>alert('Employee ID, Last Name, and First Name are required.'); location='add_adviser.php'</script>";
         exit();
     }
 
     $conn->begin_transaction();
     try {
-        // FIXED: Check if new employee_id conflicts (if changed)
+        // Check if new employee_id conflicts (if changed)
         $dup_employee = $conn->prepare("SELECT employee_id FROM advisers WHERE employee_id = ? AND employee_id != ?");
         if (!$dup_employee) {
             throw new Exception("Prepare failed: " . $conn->error);
@@ -191,22 +174,9 @@ if (isset($_POST['edit_adviser'])) {
         }
         $dup_employee->close();
 
-        // FIXED: Check username conflicts
-        $dup_username = $conn->prepare("SELECT employee_id FROM advisers WHERE username = ? AND employee_id != ?");
-        if (!$dup_username) {
-            throw new Exception("Prepare failed: " . $conn->error);
-        }
-        $dup_username->bind_param("ss", $username, $old_employee_id);
-        $dup_username->execute();
-        $dup_username->store_result();
-        if ($dup_username->num_rows > 0) {
-            throw new Exception("Username '$username' already exists for another adviser.");
-        }
-        $dup_username->close();
-
-        $sql = "UPDATE advisers SET employee_id = ?, lastname = ?, firstname = ?, middlename = ?, suffix = ?, gender = ?, username = ?";
-        $param_types = "sssssss";
-        $param_values = [$employee_id, $lastname, $firstname, $middlename, $suffix, $gender, $username];
+        $sql = "UPDATE advisers SET employee_id = ?, lastname = ?, firstname = ?, middlename = ?, suffix = ?, gender = ?";
+        $param_types = "ssssss";
+        $param_values = [$employee_id, $lastname, $firstname, $middlename, $suffix, $gender];
 
         if (!empty($pass_new)) {
             $sql .= ", pass = ?";
@@ -214,7 +184,6 @@ if (isset($_POST['edit_adviser'])) {
             $param_values[] = $pass_new;
         }
 
-        // FIXED: WHERE clause uses employee_id
         $sql .= " WHERE employee_id = ?";
         $param_types .= "s";
         $param_values[] = $old_employee_id;
@@ -284,13 +253,12 @@ if (isset($_POST['import_advisers_csv']) && isset($_FILES['adviser_csvfile']) &&
             'middlename'  => ['middlename', 'middle_name'],
             'suffix'      => ['suffix'],
             'gender'      => ['gender'],
-            'username'    => ['username'],
             'pass'        => ['pass', 'password']
         ];
 
-        if (!is_array($header) || count(array_filter($header)) < 8) { 
+        if (!is_array($header) || count(array_filter($header)) < 7) { 
             fclose($handle);
-            echo "<script>alert('❌ CSV must have at least 8 columns.'); location='add_adviser.php'</script>";
+            echo "<script>alert('❌ CSV must have at least 7 columns.'); location='add_adviser.php'</script>";
             exit();
         }
 
@@ -332,7 +300,7 @@ if (isset($_POST['import_advisers_csv']) && isset($_FILES['adviser_csvfile']) &&
                 throw new Exception("SQL Error: Could not re-enable foreign key checks: " . $conn->error);
             }
 
-            $stmt = $conn->prepare("INSERT INTO advisers (employee_id, lastname, firstname, middlename, suffix, gender, username, pass) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt = $conn->prepare("INSERT INTO advisers (employee_id, lastname, firstname, middlename, suffix, gender, pass) VALUES (?, ?, ?, ?, ?, ?, ?)");
             if (!$stmt) {
                 throw new Exception("Database error preparing import statement: " . $conn->error);
             }
@@ -343,7 +311,7 @@ if (isset($_POST['import_advisers_csv']) && isset($_FILES['adviser_csvfile']) &&
 
             while (($data = fgetcsv($handle, 2000, ",")) !== false) {
                 $row_num++;
-                if (!is_array($data) || count(array_filter($data)) === 0 || count($data) < 8) {
+                if (!is_array($data) || count(array_filter($data)) === 0 || count($data) < 7) {
                     continue;
                 }
 
@@ -353,23 +321,21 @@ if (isset($_POST['import_advisers_csv']) && isset($_FILES['adviser_csvfile']) &&
                 $csv_middlename  = htmlspecialchars(safeTrimCSV($data[$col_map['middlename']] ?? ''), ENT_QUOTES, 'UTF-8');
                 $csv_suffix      = htmlspecialchars(safeTrimCSV($data[$col_map['suffix']] ?? ''), ENT_QUOTES, 'UTF-8');
                 $csv_gender      = strtolower(safeTrimCSV($data[$col_map['gender']] ?? '')) === 'female' ? 'female' : 'male';
-                $csv_username    = htmlspecialchars(safeTrimCSV($data[$col_map['username']] ?? ''), ENT_QUOTES, 'UTF-8');
                 $csv_pass        = safeTrimCSV($data[$col_map['pass']] ?? '');
 
-                if (empty($csv_employee_id) || empty($csv_lastname) || empty($csv_firstname) || empty($csv_username) || empty($csv_pass)) {
+                if (empty($csv_employee_id) || empty($csv_lastname) || empty($csv_firstname) || empty($csv_pass)) {
                     $errors[] = "Row $row_num: Missing required fields.";
                     continue;
                 }
 
                 $stmt->bind_param(
-                    "ssssssss",
+                    "sssssss",
                     $csv_employee_id,
                     $csv_lastname,
                     $csv_firstname,
                     $csv_middlename,
                     $csv_suffix,
                     $csv_gender,
-                    $csv_username,
                     $csv_pass
                 );
                 
@@ -404,8 +370,8 @@ if (isset($_POST['import_advisers_csv']) && isset($_FILES['adviser_csvfile']) &&
     }
 }
 
-// --- Fetch advisers for display (FIXED: removed adviser_id) ---
-$advisers_result = $conn->query("SELECT employee_id, lastname, firstname, middlename, suffix, gender, username, pass FROM advisers ORDER BY lastname, firstname");
+// --- Fetch advisers for display ---
+$advisers_result = $conn->query("SELECT employee_id, lastname, firstname, middlename, suffix, gender, pass FROM advisers ORDER BY lastname, firstname");
 if (!$advisers_result) {
     error_log(date('c') . " Fetch Advisers Error: " . $conn->error . "\n", 3, $general_error_log);
     die("Error fetching advisers.");
@@ -569,7 +535,7 @@ if (!$advisers_result) {
                 }
             });
             if(visibleCount === 0 && searchTerm.length > 0 && $('#noResults').length === 0) {
-                $('.custom-table tbody').append('<tr id="noResults"><td colspan="10" class="border px-3 py-2 text-center text-gray-500 py-8"><span class="material-symbols-outlined" style="font-size:1.5rem;">search_off</span><br>No advisers found matching "' + searchTerm + '"</td></tr>');
+                $('.custom-table tbody').append('<tr id="noResults"><td colspan="9" class="border px-3 py-2 text-center text-gray-500 py-8"><span class="material-symbols-outlined" style="font-size:1.5rem;">search_off</span><br>No advisers found matching "' + searchTerm + '"</td></tr>');
             } else if (searchTerm.length === 0) {
                 $('#noResults').remove();
             }
@@ -588,8 +554,8 @@ if (!$advisers_result) {
         });
     });
 
-    // FIXED: Now passes employee_id instead of adviser_id
-    function openEditAdviserModal(employee_id, lastname, firstname, middlename, suffix, gender, username) {
+    // Now passes no username (removed)
+    function openEditAdviserModal(employee_id, lastname, firstname, middlename, suffix, gender) {
         const editModal = new bootstrap.Modal(document.getElementById('editAdviserModal'));
         document.getElementById('old_employee_id').value = employee_id;
         document.getElementById('edit_employee_id').value = employee_id;
@@ -598,7 +564,6 @@ if (!$advisers_result) {
         document.getElementById('edit_middlename').value = middlename;
         document.getElementById('edit_suffix').value = suffix;
         document.getElementById('edit_gender').value = gender;
-        document.getElementById('edit_username').value = username;
         document.getElementById('edit_pass').value = '';
         editModal.show();
     }
@@ -653,7 +618,6 @@ if (!$advisers_result) {
                                         <th class="border px-3 py-2">Middle Name</th>
                                         <th class="border px-3 py-2">Suffix</th>
                                         <th class="border px-3 py-2">Gender</th>
-                                        <th class="border px-3 py-2">Username</th>
                                         <th class="border px-3 py-2">Password</th>
                                         <th class="border px-3 py-2">Actions</th>
                                     </tr>
@@ -674,7 +638,6 @@ if (!$advisers_result) {
                                         <td class="border px-3 py-2">
                                             <span class="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full"><?= ucfirst($row['gender']) ?></span>
                                         </td>
-                                        <td class="border px-3 py-2 font-mono text-sm"><?= htmlspecialchars($row['username']) ?></td>
                                         <td class="border px-3 py-2 font-mono text-sm">
                                             <?= htmlspecialchars($row['pass']) ?>
                                         </td>
@@ -685,8 +648,7 @@ if (!$advisers_result) {
                                                 '<?= htmlspecialchars($row['firstname'], ENT_QUOTES) ?>',
                                                 '<?= htmlspecialchars($row['middlename'], ENT_QUOTES) ?>',
                                                 '<?= htmlspecialchars($row['suffix'], ENT_QUOTES) ?>',
-                                                '<?= htmlspecialchars($row['gender'], ENT_QUOTES) ?>',
-                                                '<?= htmlspecialchars($row['username'], ENT_QUOTES) ?>'
+                                                '<?= htmlspecialchars($row['gender'], ENT_QUOTES) ?>'
                                             )" class="action-icon-btn edit-icon" title="Edit Adviser">
                                                 <span class="material-symbols-outlined">edit</span>
                                             </button>
@@ -702,7 +664,7 @@ if (!$advisers_result) {
                                     <?php endwhile; ?>
                                     <?php else: ?>
                                     <tr>
-                                        <td colspan="10" class="border px-3 py-12 text-center text-gray-500">
+                                        <td colspan="9" class="border px-3 py-12 text-center text-gray-500">
                                             <span class="material-symbols-outlined" style="font-size:3rem; opacity:0.5;">group_off</span>
                                             <div class="mt-2">No advisers found.</div>
                                         </td>
@@ -760,10 +722,6 @@ if (!$advisers_result) {
                                     <option value="male">Male</option>
                                     <option value="female">Female</option>
                                 </select>
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label fw-bold">Username <span class="text-danger">*</span></label>
-                                <input type="text" name="username" class="form-control" required>
                             </div>
                         </div>
                         <div class="mb-3">
@@ -828,10 +786,6 @@ if (!$advisers_result) {
                                     <option value="female">Female</option>
                                 </select>
                             </div>
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label fw-bold">Username <span class="text-danger">*</span></label>
-                                <input type="text" id="edit_username" name="edit_username" class="form-control" required>
-                            </div>
                         </div>
                         <div class="mb-3">
                             <label class="form-label">New Password (leave blank to keep current)</label>
@@ -865,7 +819,7 @@ if (!$advisers_result) {
                             <label for="adviser_csvfile" class="form-label">Select CSV File *</label>
                             <input type="file" name="adviser_csvfile" id="adviser_csvfile" class="form-control" accept=".csv" required>
                             <small class="text-muted">
-                                Max 5MB | Columns: <code>employee_id, lastname, firstname, middlename, suffix, gender, username, pass OR password</code>
+                                Max 5MB | Columns: <code>employee_id, lastname, firstname, middlename, suffix, gender, pass OR password</code>
                             </small>
                         </div>
                     </div>

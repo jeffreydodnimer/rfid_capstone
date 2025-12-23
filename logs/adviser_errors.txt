@@ -3,3 +3,5 @@
 2025-12-02T13:50:49+01:00 CSV Import Fatal Error: Unknown column 'password' in 'field list'
 2025-12-02T13:52:17+01:00 CSV Import Fatal Error: Unknown column 'password' in 'field list'
 2025-12-02T18:38:40+01:00 Delete Adviser Error: Cannot delete adviser. They are assigned to 1 section(s). Please reassign or delete sections first.
+2025-12-22T17:03:58+01:00 CSV Import Fatal Error: Duplicate entry '98765' for key 'PRIMARY'
+2025-12-22T17:04:48+01:00 CSV Import Fatal Error: Duplicate entry '54321' for key 'PRIMARY'

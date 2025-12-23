@@ -12,13 +12,21 @@ if (!file_exists(STUDENT_UPLOAD_DIR)) {
     mkdir(STUDENT_UPLOAD_DIR, 0755, true);
 }
 
+/**
+ * Accepts: MM-DD-YYYY or MM/DD/YYYY
+ * Stores/returns (for DB): YYYY-MM-DD
+ */
 function convertDateFormat($dateString) {
     if (empty($dateString)) return null;
     if (!is_string($dateString)) return null;
 
     if (preg_match('/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/', $dateString, $m)) {
-        if (checkdate($m[2], $m[1], $m[3])) {
-            return sprintf("%04d-%02d-%02d", $m[3], $m[2], $m[1]);
+        $month = (int)$m[1];
+        $day   = (int)$m[2];
+        $year  = (int)$m[3];
+
+        if (checkdate($month, $day, $year)) {
+            return sprintf("%04d-%02d-%02d", $year, $month, $day);
         }
     }
     return null;
@@ -93,13 +101,13 @@ if (isset($_POST['import_csv']) && isset($_FILES['csvfile']) && $_FILES['csvfile
         ini_set('auto_detect_line_endings', 1);
         $header = fgetcsv($handle, 2000, ",");
 
-        if (!is_array($header) || count($header) < 7) {
+        if (!is_array($header) || count($header) < 8) {
             fclose($handle);
-            alertAndBack('❌ CSV must have at least 7 columns: LRN, Lastname, Firstname, Middlename, Suffix, Age, Birthdate');
+            alertAndBack('❌ CSV must have at least 8 columns: LRN, Lastname, Firstname, Middlename, Suffix, Age, Birthdate, Sex');
         }
 
-        $stmt = $conn->prepare("INSERT INTO students (lrn, lastname, firstname, middlename, suffix, age, birthdate)
-                                VALUES (?, ?, ?, ?, ?, ?, ?)");
+        $stmt = $conn->prepare("INSERT INTO students (lrn, lastname, firstname, middlename, suffix, age, birthdate, sex)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
         if (!$stmt) {
             fclose($handle);
             alertAndBack('❌ Prepare failed: ' . addslashes($conn->error));
@@ -115,8 +123,8 @@ if (isset($_POST['import_csv']) && isset($_FILES['csvfile']) && $_FILES['csvfile
                 continue;
             }
 
-            if (count($data) < 7) {
-                $errors[] = "Row {$row_num}: Expected 7 columns, found " . count($data);
+            if (count($data) < 8) {
+                $errors[] = "Row {$row_num}: Expected 8 columns, found " . count($data);
                 continue;
             }
 
@@ -127,6 +135,7 @@ if (isset($_POST['import_csv']) && isset($_FILES['csvfile']) && $_FILES['csvfile
             $suffix     = safeTrim($data[4] ?? '');
             $age_raw    = safeTrim($data[5] ?? '');
             $birth_raw  = safeTrim($data[6] ?? '');
+            $sex_raw    = safeTrim($data[7] ?? '');
 
             if (empty($lrn) || strlen($lrn) !== 12 || !ctype_digit($lrn)) {
                 $errors[] = "Row {$row_num}: Invalid LRN '{$lrn}'";
@@ -139,9 +148,16 @@ if (isset($_POST['import_csv']) && isset($_FILES['csvfile']) && $_FILES['csvfile
             }
             $age = (int)$age_raw;
 
+            // Birthdate input: MM-DD-YYYY or MM/DD/YYYY
             $birthdate = convertDateFormat($birth_raw);
             if ($birthdate === null) {
-                $errors[] = "Row {$row_num}: Invalid date '{$birth_raw}'";
+                $errors[] = "Row {$row_num}: Invalid date '{$birth_raw}' (use MM-DD-YYYY or MM/DD/YYYY)";
+                continue;
+            }
+
+            $sex = ucfirst(strtolower($sex_raw));
+            if (!in_array($sex, ['Male', 'Female'])) {
+                $errors[] = "Row {$row_num}: Invalid sex '{$sex_raw}' (use Male or Female)";
                 continue;
             }
 
@@ -161,7 +177,7 @@ if (isset($_POST['import_csv']) && isset($_FILES['csvfile']) && $_FILES['csvfile
             }
             $check->close();
 
-            $stmt->bind_param("ssssiss", $lrn, $lastname, $firstname, $middlename, $suffix, $age, $birthdate);
+            $stmt->bind_param("sssssiss", $lrn, $lastname, $firstname, $middlename, $suffix, $age, $birthdate, $sex);
 
             if (!$stmt->execute()) {
                 $errors[] = "Row {$row_num}: Database error.";
@@ -205,10 +221,15 @@ if (isset($_POST['add_student'])) {
     $suffix = htmlspecialchars(safeTrim($_POST['suffix'] ?? ''));
     $age = !empty($_POST['age']) ? (int)$_POST['age'] : 0;
     $birth_raw = htmlspecialchars(safeTrim($_POST['birthdate'] ?? ''));
+    $sex = htmlspecialchars(safeTrim($_POST['sex'] ?? ''));
 
     $birthdate = convertDateFormat($birth_raw);
     if ($birthdate === null) {
-        alertAndBack('❌ Invalid birthdate format (use DD-MM-YYYY or DD/MM/YYYY)');
+        alertAndBack('❌ Invalid birthdate format (use MM-DD-YYYY or MM/DD/YYYY)');
+    }
+
+    if (!in_array($sex, ['Male', 'Female'])) {
+        alertAndBack('❌ Please select a valid sex.');
     }
 
     if (strlen($lrn) !== 12 || !ctype_digit($lrn)) {
@@ -220,9 +241,9 @@ if (isset($_POST['add_student'])) {
         alertAndBack(implode("\\n", $imgErrors));
     }
 
-    $stmt = $conn->prepare("INSERT INTO students (lrn, lastname, firstname, middlename, suffix, age, birthdate, profile_image)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-    $stmt->bind_param("sssssiss", $lrn, $lastname, $firstname, $middlename, $suffix, $age, $birthdate, $profileImage);
+    $stmt = $conn->prepare("INSERT INTO students (lrn, lastname, firstname, middlename, suffix, age, birthdate, sex, profile_image)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    $stmt->bind_param("sssssisss", $lrn, $lastname, $firstname, $middlename, $suffix, $age, $birthdate, $sex, $profileImage);
 
     if ($stmt->execute()) {
         header("Location: students_list.php?status=added");
@@ -280,11 +301,16 @@ if (isset($_POST['edit_student'])) {
     $suffix = htmlspecialchars(safeTrim($_POST['edit_suffix'] ?? ''));
     $age = !empty($_POST['edit_age']) ? (int)$_POST['edit_age'] : 0;
     $birth_raw = htmlspecialchars(safeTrim($_POST['edit_birthdate'] ?? ''));
+    $sex = htmlspecialchars(safeTrim($_POST['edit_sex'] ?? ''));
     $existingProfile = htmlspecialchars(safeTrim($_POST['existing_profile'] ?? ''));
 
     $birthdate = convertDateFormat($birth_raw);
     if ($birthdate === null) {
-        alertAndBack('❌ Invalid birthdate format');
+        alertAndBack('❌ Invalid birthdate format (use MM-DD-YYYY or MM/DD/YYYY)');
+    }
+
+    if (!in_array($sex, ['Male', 'Female'])) {
+        alertAndBack('❌ Please select a valid sex.');
     }
 
     if (strlen($lrn) !== 12 || !ctype_digit($lrn)) {
@@ -297,10 +323,10 @@ if (isset($_POST['edit_student'])) {
     }
 
     $stmt = $conn->prepare("UPDATE students
-                            SET lrn=?, lastname=?, firstname=?, middlename=?, suffix=?, age=?, birthdate=?, profile_image=?
+                            SET lrn=?, lastname=?, firstname=?, middlename=?, suffix=?, age=?, birthdate=?, sex=?, profile_image=?
                             WHERE lrn=?");
 
-    $stmt->bind_param("sssssisss", $lrn, $lastname, $firstname, $middlename, $suffix, $age, $birthdate, $profileImage, $original_lrn);
+    $stmt->bind_param("sssssissss", $lrn, $lastname, $firstname, $middlename, $suffix, $age, $birthdate, $sex, $profileImage, $original_lrn);
 
     if ($stmt->execute()) {
         header("Location: students_list.php?status=updated");
@@ -331,29 +357,8 @@ if (!$students_result) {
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
 <style>
+.container-fluid { width: 100%; padding: 0; margin: 0; }
 
-    
-/* Add this to your existing CSS to fix the gap on the right edge */
-.container-fluid {
-    width: 100%;
-    padding: 0;
-    margin: 0;
-}
-
-/* Ensure the header section extends to full width */
-.header-section {
-    width: 100%;
-    padding: 1rem 0;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 30px;
-    flex-wrap: wrap;
-    gap: 15px;
-    position: relative;
-}
-
-/* Ensure the body content doesn't have margins that create gaps */
 body {
     margin: 0;
     padding: 0;
@@ -362,14 +367,6 @@ body {
     color: #1a1a1a;
 }
 
-/* Fix the container-fluid to extend full width */
-.container-fluid {
-    width: 100%;
-    padding: 0;
-    margin: 0;
-}
-
-/* Ensure the header section doesn't have padding that creates gaps */
 .header-section {
     width: 100%;
     padding: 1rem 0;
@@ -380,15 +377,6 @@ body {
     flex-wrap: wrap;
     gap: 15px;
     position: relative;
-}
-
-.header-section {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 30px;
-    flex-wrap: wrap;
-    gap: 15px;
 }
 
 .search-container {
@@ -413,9 +401,7 @@ body {
     text-align: center;
 }
 
-.table-responsive-custom {
-    overflow-x: auto;
-}
+.table-responsive-custom { overflow-x: auto; }
 
 .custom-table {
     width: 100%;
@@ -423,7 +409,6 @@ body {
     font-size: 0.95rem;
 }
 
-/* Add borders to table headers and cells */
 .custom-table thead th {
     text-align: left;
     font-weight: 600;
@@ -432,104 +417,21 @@ body {
     letter-spacing: 0.08em;
     color: #4b5563;
     padding: 0.75rem 1rem;
+    border: 1px solid #e5e7eb;
     border-bottom: 1px solid #e5e7eb;
     background-color: #f9fafb;
-    border-right: 1px solid #e5e7eb;
-    border-top: 1px solid #e5e7eb;
 }
 
-/* Add borders to table data cells */
 .custom-table tbody td {
     padding: 0.85rem 1rem;
-    border-bottom: 1px solid #f1f5f9;
+    border: 1px solid #f1f5f9;
     vertical-align: middle;
-    border-right: 1px solid #f1f5f9;
 }
 
-/* Add borders to the last column header and cell */
-.custom-table thead th:last-child {
-    text-align: right;
-    border-right: 1px solid #e5e7eb;
-}
+.custom-table tbody tr:last-child td { border-bottom: 1px solid #f1f5f9; }
+.custom-table tbody tr:hover { background: rgba(59, 130, 246, 0.06); }
 
-/* Add borders to the last column data cell */
-.custom-table tbody td:last-child {
-    border-right: 1px solid #f1f5f9;
-}
-
-/* Remove border from the last row of data */
-.custom-table tbody tr:last-child td {
-    border-bottom: none;
-}
-
-/* Add borders to the first column header and cell */
-.custom-table thead th:first-child {
-    border-left: 1px solid #e5e7eb;
-}
-
-/* Add borders to the first column data cell */
-.custom-table tbody td:first-child {
-    border-left: 1px solid #f1f5f9;
-}
-
-/* Add border to the last column header and cell */
-.custom-table thead th:last-child {
-    border-right: 1px solid #e5e7eb;
-}
-
-/* Add border to the last column data cell */
-.custom-table tbody td:last-child {
-    border-right: 1px solid #f1f5f9;
-}
-
-/* Add border to the first column header and cell */
-.custom-table thead th:first-child {
-    border-left: 1px solid #e5e7eb;
-}
-
-/* Add border to the first column data cell */
-.custom-table tbody td:first-child {
-    border-left: 1px solid #f1f5f9;
-}
-
-/* Add border to the first row of data */
-.custom-table tbody tr:first-child td {
-    border-top: 1px solid #f1f5f9;
-}
-
-/* Add border to the first column header and cell */
-.custom-table thead th:first-child {
-    border-left: 1px solid #e5e7eb;
-}
-
-/* Add border to the first column data cell */
-.custom-table tbody td:first-child {
-    border-left: 1px solid #f1f5f9;
-}
-
-/* Add border to the last column header and cell */
-.custom-table thead th:last-child {
-    border-right: 1px solid #e5e7eb;
-}
-
-/* Add border to the last column data cell */
-.custom-table tbody td:last-child {
-    border-right: 1px solid #f1f5f9;
-}
-
-/* Add border to the first row of data */
-.custom-table tbody tr:first-child td {
-    border-top: 1px solid #f1f5f9;
-}
-
-.custom-table tbody tr:hover {
-    background: rgba(59, 130, 246, 0.06);
-}
-
-.lrn-cell {
-    font-weight: 600;
-    font-size: 0.85rem;
-}
+.lrn-cell { font-weight: 600; font-size: 0.85rem; }
 
 .actions-cell {
     display: flex;
@@ -538,7 +440,6 @@ body {
     min-width: 80px;
 }
 
-/* Update action icons to match the image style */
 .action-icon-btn {
     border: none;
     background: none;
@@ -546,7 +447,7 @@ body {
     margin: 0 2px;
     cursor: pointer;
     transition: color 0.2s ease, opacity 0.2s ease;
-    border-radius: 50%; /* Make icons circular */
+    border-radius: 50%;
     width: 36px;
     height: 36px;
     display: flex;
@@ -557,49 +458,21 @@ body {
 
 .action-icon-btn .material-symbols-outlined {
     font-size: 1.1em;
-    font-variation-settings:
-        'FILL' 0,
-        'wght' 400,
-        'GRAD' 0,
-        'opsz' 24;
+    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
 }
 
-.action-icon-btn.edit-icon .material-symbols-outlined {
-    color: #1c74e4;
-}
+.action-icon-btn.edit-icon .material-symbols-outlined { color: #1c74e4; }
+.action-icon-btn.delete-icon .material-symbols-outlined { color: #dc3545; }
+.action-icon-btn:hover .material-symbols-outlined { opacity: 0.7; }
 
-.action-icon-btn.delete-icon .material-symbols-outlined {
-    color: #dc3545;
-}
-
-.action-icon-btn:hover .material-symbols-outlined {
-    opacity: 0.7;
-}
-
-/* Add hover effect to the entire button */
 .action-icon-btn:hover {
     background-color: #f1f5f9;
     transform: translateY(-1px);
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
-/* Make sure the icons are properly centered */
-.action-icon-btn .material-symbols-outlined {
-    font-size: 1.1em;
-    font-variation-settings:
-        'FILL' 0,
-        'wght' 400,
-        'GRAD' 0,
-        'opsz' 24;
-}
+.action-icon-btn:focus { outline: 2px solid #1c74e4; outline-offset: 2px; }
 
-/* Add focus state for accessibility */
-.action-icon-btn:focus {
-    outline: 2px solid #1c74e4;
-    outline-offset: 2px;
-}
-
-/* Modal content styling */
 .modal-content input.form-control,
 .modal-content select.form-select {
     border: 1px solid #ccc;
@@ -609,19 +482,7 @@ body {
     text-align: left;
 }
 
-.modal-content label {
-    font-weight: 500;
-    margin-bottom: 0.25rem;
-}
-
-.custom-table thead th:first-child,
-.custom-table thead th:nth-child(2) {
-    text-align: left;
-}
-
-.custom-table thead th:last-child {
-    text-align: right;
-}
+.modal-content label { font-weight: 500; margin-bottom: 0.25rem; }
 
 .profile-img-thumb {
     width: 36px;
@@ -648,11 +509,7 @@ body {
     font-size: 1.2rem;
     padding: 0 5px;
 }
-
-.clear-search:hover {
-    color: #000;
-}
-
+.clear-search:hover { color: #000; }
 </style>
 
 <script>
@@ -691,11 +548,14 @@ function openEditModal(student) {
     $('#edit_middlename').val(student.middlename || '');
     $('#edit_suffix').val(student.suffix || '');
     $('#edit_age').val(student.age || '');
+    $('#edit_sex').val(student.sex || '');
 
+    // DB is expected: YYYY-MM-DD
+    // Display in input: MM-DD-YYYY
     if (student.birthdate) {
         const parts = student.birthdate.split("-");
         if (parts.length === 3) {
-            $('#edit_birthdate').val(parts[2] + '-' + parts[1] + '-' + parts[0]);
+            $('#edit_birthdate').val(parts[1] + '-' + parts[2] + '-' + parts[0]);
         } else {
             $('#edit_birthdate').val(student.birthdate);
         }
@@ -716,7 +576,6 @@ function openEditModal(student) {
     $('#editImagePreview').hide();
 }
 
-// Live search functionality
 $(document).ready(function() {
     const urlParams = new URLSearchParams(window.location.search);
     const status = urlParams.get('status');
@@ -757,7 +616,6 @@ $(document).ready(function() {
         $(this).hide();
     });
 
-    // Search functionality
     $('#searchInput').on('keyup', function() {
         const value = $(this).val().toLowerCase();
         $('.custom-table tbody tr').filter(function() {
@@ -765,13 +623,11 @@ $(document).ready(function() {
         });
     });
 
-    // Clear search button
     $('#clearSearch').on('click', function() {
         $('#searchInput').val('').trigger('keyup');
         $(this).hide();
     });
 
-    // Show clear button when typing
     $('#searchInput').on('input', function() {
         $('#clearSearch').toggle($(this).val().length > 0);
     });
@@ -788,21 +644,24 @@ $(document).ready(function() {
             <img src="img/depedlogo.jpg" alt="Dashboard Logo" style="width: 50px; height: 50px; margin-right: 10px;">
             <h2 class="h3 mb-0 text-gray-800">Student Dashboard</h2>
         </div>
+
         <div class="search-container">
-    <div class="input-group" style="width: 250px; position: relative;">
-        <input type="text" id="searchInput" class="form-control" placeholder="Search Student">
-        <span class="search-icon" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: #6c757d; pointer-events: none; z-index: 2;">
-            <span class="material-symbols-outlined" style="font-size: 1.2em;">search</span>
-        </span>
-        <button class="clear-search" id="clearSearch" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; color: #6c757d; cursor: pointer; display:none; z-index: 3;">×</button>
-    </div>
-    <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#importModal" style="box-shadow: 0 4px 8px rgba(0,0,0,0.1); border-radius: 8px;">
-        <span class="material-symbols-outlined" style="font-size: 1.2em; vertical-align: middle;">upload_file</span> Import CSV
-    </button>
-    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addStudentModal" style="box-shadow: 0 4px 8px rgba(0,0,0,0.1); border-radius: 8px;">
-        <span class="material-symbols-outlined" style="font-size: 1.2em; vertical-align: middle;">person_add</span> Add Student
-    </button>
-</div>
+            <div class="input-group" style="width: 250px; position: relative;">
+                <input type="text" id="searchInput" class="form-control" placeholder="Search Student">
+                <span class="search-icon" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: #6c757d; pointer-events: none; z-index: 2;">
+                    <span class="material-symbols-outlined" style="font-size: 1.2em;">search</span>
+                </span>
+                <button class="clear-search" id="clearSearch" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; color: #6c757d; cursor: pointer; display:none; z-index: 3;">×</button>
+            </div>
+
+            <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#importModal" style="box-shadow: 0 4px 8px rgba(0,0,0,0.1); border-radius: 8px;">
+                <span class="material-symbols-outlined" style="font-size: 1.2em; vertical-align: middle;">upload_file</span> Import CSV
+            </button>
+
+            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addStudentModal" style="box-shadow: 0 4px 8px rgba(0,0,0,0.1); border-radius: 8px;">
+                <span class="material-symbols-outlined" style="font-size: 1.2em; vertical-align: middle;">person_add</span> Add Student
+            </button>
+        </div>
     </div>
 
     <div class="table-card">
@@ -811,14 +670,15 @@ $(document).ready(function() {
                 <thead>
                     <tr>
                         <th style="width: 5%;">#</th>
-                        <th style="width: 15%;">LRN</th>
-                        <th style="width: 8%;">Photo</th>
+                        <th style="width: 12%;">LRN</th>
+                        <th style="width: 5%;">Photo</th>
                         <th style="width: 12%;">Lastname</th>
                         <th style="width: 12%;">Firstname</th>
-                        <th style="width: 12%;">Middlename</th>
-                        <th style="width: 8%;">Suffix</th>
-                        <th style="width: 8%;">Age</th>
-                        <th style="width: 12%;">Birthdate</th>
+                        <th style="width: 10%;">Middlename</th>
+                        <th style="width: 5%;">Suffix</th>
+                        <th style="width: 5%;">Age</th>
+                        <th style="width: 10%;">Birthdate</th>
+                        <th style="width: 8%;">Sex</th>
                         <th style="width: 8%; text-align:right;">Actions</th>
                     </tr>
                 </thead>
@@ -827,11 +687,14 @@ $(document).ready(function() {
                 $count = 1;
                 if ($students_result->num_rows > 0):
                     while ($row = $students_result->fetch_assoc()):
+                        // DB: YYYY-MM-DD -> Display: MM-DD-YYYY
                         $display_date = '';
                         if (!empty($row['birthdate'])) {
                             $parts = explode("-", $row['birthdate']);
                             if (count($parts) === 3) {
-                                $display_date = "{$parts[2]}-{$parts[1]}-{$parts[0]}";
+                                $display_date = "{$parts[1]}-{$parts[2]}-{$parts[0]}";
+                            } else {
+                                $display_date = $row['birthdate'];
                             }
                         }
                 ?>
@@ -850,13 +713,17 @@ $(document).ready(function() {
                         <td><?= htmlspecialchars($row['middlename'] ?? '-') ?></td>
                         <td><?= htmlspecialchars($row['suffix'] ?? '-') ?></td>
                         <td><?= htmlspecialchars($row['age']) ?></td>
-                        <td><?= $display_date ?></td>
+                        <td><?= htmlspecialchars($display_date) ?></td>
+                        <td><?= htmlspecialchars($row['sex'] ?? '-') ?></td>
                         <td class="actions-cell">
-                            <button type="button" class="action-icon-btn edit-icon" onclick='openEditModal(<?= htmlspecialchars(json_encode($row), ENT_QUOTES, 'UTF-8') ?>)' title="Edit">
+                            <button type="button" class="action-icon-btn edit-icon"
+                                onclick='openEditModal(<?= htmlspecialchars(json_encode($row), ENT_QUOTES, "UTF-8") ?>)'
+                                title="Edit">
                                 <span class="material-symbols-outlined">edit</span>
                             </button>
 
-                            <form method="POST" class="d-inline" onsubmit="return confirm('Are you sure you want to delete student <?= htmlspecialchars($row['firstname'] . ' ' . $row['lastname']) ?>?');">
+                            <form method="POST" class="d-inline"
+                                  onsubmit="return confirm('Are you sure you want to delete student <?= htmlspecialchars($row['firstname'] . ' ' . $row['lastname']) ?>?');">
                                 <input type="hidden" name="student_lrn" value="<?= htmlspecialchars($row['lrn']) ?>">
                                 <button type="submit" name="delete_student" class="action-icon-btn delete-icon" title="Delete">
                                     <span class="material-symbols-outlined">delete</span>
@@ -867,7 +734,7 @@ $(document).ready(function() {
                 <?php
                     endwhile;
                 else:
-                    echo '<tr><td colspan="10" class="text-center text-muted py-4">No students found.</td></tr>';
+                    echo '<tr><td colspan="11" class="text-center text-muted py-4">No students found.</td></tr>';
                 endif;
                 ?>
                 </tbody>
@@ -894,7 +761,8 @@ $(document).ready(function() {
 
                     <div class="alert alert-info">
                         <strong>📋 CSV Format Required:</strong>
-                        <pre style="font-size: 12px; margin-top: 10px;">LRN,Lastname,Firstname,Middlename,Suffix,Age,Birthdate</pre>
+                        <pre style="font-size: 12px; margin-top: 10px;">LRN,Lastname,Firstname,Middlename,Suffix,Age,Birthdate,Sex</pre>
+                        <small class="text-muted">Birthdate must be MM-DD-YYYY or MM/DD/YYYY</small>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -943,8 +811,16 @@ $(document).ready(function() {
                         <input type="number" name="age" class="form-control" min="0" max="120" required>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Birthdate (DD-MM-YYYY) *</label>
-                        <input type="text" name="birthdate" class="form-control" placeholder="DD-MM-YYYY" required>
+                        <label class="form-label">Birthdate (MM-DD-YYYY or MM/DD/YYYY) *</label>
+                        <input type="text" name="birthdate" class="form-control" placeholder="MM-DD-YYYY" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Sex *</label>
+                        <select name="sex" class="form-select" required>
+                            <option value="" disabled selected>Select sex</option>
+                            <option value="Male">Male</option>
+                            <option value="Female">Female</option>
+                        </select>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Profile Image</label>
@@ -1000,8 +876,16 @@ $(document).ready(function() {
                         <input type="number" id="edit_age" name="edit_age" class="form-control" min="0" max="120" required>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Birthdate (DD-MM-YYYY) *</label>
-                        <input type="text" id="edit_birthdate" name="edit_birthdate" class="form-control" placeholder="DD-MM-YYYY" required>
+                        <label class="form-label">Birthdate (MM-DD-YYYY or MM/DD/YYYY) *</label>
+                        <input type="text" id="edit_birthdate" name="edit_birthdate" class="form-control" placeholder="MM-DD-YYYY" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Sex *</label>
+                        <select id="edit_sex" name="edit_sex" class="form-select" required>
+                            <option value="" disabled>Select sex</option>
+                            <option value="Male">Male</option>
+                            <option value="Female">Female</option>
+                        </select>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Profile Image</label>
